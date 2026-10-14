@@ -67,11 +67,16 @@ t('App::log 经 LogRepo 写入本租户 sys_log', function () {
     QG\Db::exec('DELETE FROM sys_log WHERE tenant_id = ?', [$t]);
 
     QG\App::log('test', 'repo', 1, 'hello');
+    // 目标为空时（系统设置保存那条日志就是这样）必须写 NULL：sys_log.target_id 是整型列，
+    // 写成 '' 在严格模式下会直接报 Incorrect integer value
+    QG\App::log('test', 'repo-null-target', null, 'no target');
 
     [$rows, $total] = QG\repos\LogRepo::page(50, 0);
-    assert_eq($total, 1, '本租户应恰好写入一条日志');
-    assert_eq($rows[0]['module'], 'test');
-    assert_eq((int) $rows[0]['tenant_id'], $t);
+    assert_eq($total, 2, '本租户应恰好写入两条日志');
+    assert_eq($rows[1]['module'], 'test');
+    assert_eq((int) $rows[1]['tenant_id'], $t);
+    assert_eq($rows[0]['target_id'], null, '空目标应落成 NULL');
+    assert_eq((int) $rows[1]['target_id'], 1);
 
     QG\Db::exec('DELETE FROM sys_log WHERE tenant_id = ?', [$t]);
     QG\Tenant::set(null);

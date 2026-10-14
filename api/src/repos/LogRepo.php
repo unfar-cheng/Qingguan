@@ -30,7 +30,9 @@ class LogRepo
             'user_id'    => Auth::id(),
             'module'     => $module,
             'action'     => $action,
-            'target_id'  => (string) ($targetId ?? ''),
+            // sys_log.target_id 是整型列：空值必须写 NULL，写 '' 在严格模式下会报
+            // 「Incorrect integer value」（系统设置保存那条日志的 target 就是空的）
+            'target_id'  => ($targetId === null || $targetId === '') ? null : (int) $targetId,
             'detail'     => is_scalar($detail) ? (string) $detail : json_encode($detail, JSON_UNESCAPED_UNICODE),
             'ip'         => App::ip(),
             'created_at' => App::now(),
