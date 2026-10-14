@@ -7,7 +7,7 @@ INSERT INTO `sys_user`
   (`tenant_id`,`username`,`real_name`,`password_hash`,`role_id`,`status`,`created_at`)
 SELECT 1,'admin','系统管理员',
        '$2y$10$GvjEYINZ1E2cBUYpJAnbNOFW9MlJ5RktNwncEU8JfRPSh6hRKOAPe',
-       (SELECT `id` FROM `sys_role` WHERE `code`='super' AND `tenant_id`=1 LIMIT 1),
+       (SELECT `id` FROM `sys_role` WHERE `code`='tenant_admin' AND `tenant_id`=1 LIMIT 1),
        1, NOW()
 FROM DUAL
 WHERE NOT EXISTS (SELECT 1 FROM `sys_user` WHERE `tenant_id`=1 AND `username`='admin');
