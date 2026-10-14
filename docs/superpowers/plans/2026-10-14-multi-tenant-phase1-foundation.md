@@ -1520,3 +1520,13 @@ git commit -m "docs: 一期地基计划执行完成"
 - `php83 tests/run.php` → `29 passed, 0 failed`。
 - HTTP 冒烟（`demo / admin / admin123`）：`/auth/me`、`/menu`、`/orders`、`/orders/stat`、`/orders/export`、`/companies`、`/companies/options`、`/plans`、`/finance/accounts|recharges|payables`、`/staff`、`/roles`、`/permissions`、`/configs`、`/dicts`、`/dict/options`、`/logs`、`/files` 全部 `code:0`；`POST /companies` 写入 → 列表/详情可读 → `DELETE` 软删成功；跨租户取数 `GET /companies/999999` 与 `GET /orders/{他租户id}` 分别返回「记录不存在」「订单不存在」。
 - HTTP 级双租户隔离（`tests/test_isolation_http.php`）：租户 1 与临时租户 2 各自只看到自己的订单，跨租户读日志为空。
+
+**上线前的生产栈预检（2026-10-14，未动线上）**
+
+本机是 MariaDB 10.5，线上是 MySQL 8.0.46，所以新代码与迁移脚本在**真实生产引擎**上单独预检了一遍（全程只碰新建的临时库，验完即删）：
+
+1. 在 breeder 建临时库 `qingguan_mtcheck` + `qingguan_ctlcheck` 与临时账号 `qgcheck`，导入 `db/schema.sql` → `migration_20261015_multitenant.sql` → `migration_20261015_role_rename.sql` → `db/dev/seed_dev.sql` → 控制面 `db/control/schema.sql` + `seed_tenant1.sql`。结果：21 张表、21 个 `tenant_id` 列、11 个租户复合键/索引全部就位，**迁移重跑一遍仍然成功（幂等成立）**。
+2. 把仓库 rsync 到 `/tmp/qg_mt_check`（不带本机 `config.php`），临时写一份指向上述临时库的配置，用 `php -S` 起站，跑 `php tests/run.php`。
+3. 结果：**29 passed, 0 failed**（PHP 8.3.6 + MySQL 8.0.46），含 HTTP 级登录与双租户隔离总测。
+4. 顺带修掉一个环境依赖：`tests/test_login.php` / `tests/test_isolation_http.php` 原先用 PHP 的 curl 扩展，而 breeder 上没装 `php-curl`。已改为调 `curl` 命令行（`tests/http.php`）。
+5. 验完删除临时库/账号与 `/tmp/qg_mt_check`，线上 `qingguan` 库与站点**未被触碰**。
