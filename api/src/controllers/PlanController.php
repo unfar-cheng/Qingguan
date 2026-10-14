@@ -2,10 +2,10 @@
 namespace QG\controllers;
 
 use QG\App;
-use QG\Db;
 use QG\Req;
 use QG\Response;
 use QG\Router;
+use QG\repos\PlanRepo;
 
 class PlanController
 {
@@ -20,28 +20,12 @@ class PlanController
 
     public static function index(): void
     {
-        $keyword = Req::str('keyword');
-        $where = ['1=1'];
-        $bind  = [];
-        if ($keyword !== '') {
-            $where[] = '(plan_name LIKE ? OR plan_code LIKE ?)';
-            $bind[] = "%{$keyword}%";
-            $bind[] = "%{$keyword}%";
-        }
-        if (Req::str('status') !== '') {
-            $where[] = 'status = ?';
-            $bind[] = Req::int('status');
-        }
-        $rows = Db::all(
-            'SELECT * FROM biz_plan WHERE ' . implode(' AND ', $where) . ' ORDER BY sort, id',
-            $bind
-        );
-        Response::ok($rows);
+        Response::ok(PlanRepo::page(Req::str('keyword'), Req::str('status')));
     }
 
     public static function show(array $p): void
     {
-        $row = Db::one('SELECT * FROM biz_plan WHERE id = ?', [(int) $p['id']]);
+        $row = PlanRepo::find((int) $p['id']);
         $row ? Response::ok($row) : Response::fail('方案不存在');
     }
 
@@ -66,38 +50,37 @@ class PlanController
         if ($data['plan_code'] === '' || $data['plan_name'] === '') {
             Response::fail('方案编码与方案名称为必填');
         }
-        if (Db::val('SELECT id FROM biz_plan WHERE plan_code = ?', [$data['plan_code']])) {
+        if (PlanRepo::codeExists($data['plan_code'])) {
             Response::fail('方案编码已存在');
         }
-        $id = Db::insert('biz_plan', $data);
+        $id = PlanRepo::create($data);
         App::log('plan', 'create', $id, $data);
         Response::ok(['id' => $id], '已新增');
     }
 
     public static function update(array $p): void
     {
-        $id  = (int) $p['id'];
-        $row = Db::one('SELECT * FROM biz_plan WHERE id = ?', [$id]);
-        if (!$row) {
+        $id = (int) $p['id'];
+        if (!PlanRepo::exists($id)) {
             Response::fail('方案不存在');
         }
         $data = self::payload();
-        if (!empty($data['plan_code']) && Db::val('SELECT id FROM biz_plan WHERE plan_code = ? AND id <> ?', [$data['plan_code'], $id])) {
+        if (!empty($data['plan_code']) && PlanRepo::codeExists($data['plan_code'], $id)) {
             Response::fail('方案编码已存在');
         }
-        Db::update('biz_plan', $data, 'id = ?', [$id]);
+        PlanRepo::update($id, $data);
         App::log('plan', 'update', $id, $data);
         Response::ok(null, '已保存');
     }
 
     public static function destroy(array $p): void
     {
-        $id = (int) $p['id'];
-        $used = Db::val('SELECT COUNT(*) FROM biz_order WHERE plan_id = ? AND is_deleted = 0', [$id]);
+        $id   = (int) $p['id'];
+        $used = PlanRepo::usedByOrders($id);
         if ($used) {
             Response::fail('该方案已被 ' . $used . ' 个订单引用，不能删除，可改为停用');
         }
-        Db::exec('DELETE FROM biz_plan WHERE id = ?', [$id]);
+        PlanRepo::softDelete($id);
         App::log('plan', 'delete', $id);
         Response::ok(null, '已删除');
     }
