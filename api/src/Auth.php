@@ -1,6 +1,9 @@
 <?php
 namespace QG;
 
+use QG\repos\PermissionRepo;
+use QG\repos\UserRepo;
+
 class Auth
 {
     private const COOKIE = 'qg_token';
@@ -76,12 +79,7 @@ class Auth
             self::$user = [];
             return null;
         }
-        $u = Db::one(
-            'SELECT u.*, r.name AS role_name, r.code AS role_code
-               FROM sys_user u LEFT JOIN sys_role r ON r.id = u.role_id
-              WHERE u.id = ? AND u.is_deleted = 0 LIMIT 1',
-            [$payload['uid']]
-        );
+        $u = UserRepo::findWithRole((int) $payload['uid']);
         if (!$u || (int) $u['status'] !== 1) {
             self::$user = [];
             return null;
@@ -127,13 +125,7 @@ class Auth
         if ($u['role_code'] === 'super') {
             return ['*'];
         }
-        $rows = Db::all(
-            'SELECT p.code FROM sys_permission p
-               JOIN sys_role_permission rp ON rp.permission_id = p.id
-              WHERE rp.role_id = ? AND p.status = 1',
-            [(int) $u['role_id']]
-        );
-        return array_column($rows, 'code');
+        return PermissionRepo::codesForRole((int) $u['role_id']);
     }
 
     public static function can(string $code): bool

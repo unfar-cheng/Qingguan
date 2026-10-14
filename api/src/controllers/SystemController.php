@@ -3,10 +3,15 @@ namespace QG\controllers;
 
 use QG\App;
 use QG\Auth;
-use QG\Db;
 use QG\Req;
 use QG\Response;
 use QG\Router;
+use QG\repos\ConfigRepo;
+use QG\repos\DictRepo;
+use QG\repos\LogRepo;
+use QG\repos\PermissionRepo;
+use QG\repos\RoleRepo;
+use QG\repos\UserRepo;
 
 class SystemController
 {
@@ -44,27 +49,8 @@ class SystemController
     public static function staffList(): void
     {
         Auth::requireLogin();
-        $kw = Req::str('keyword');
-        $where = ['u.is_deleted = 0'];
-        $bind  = [];
-        if ($kw !== '') {
-            $where[] = '(u.username LIKE ? OR u.real_name LIKE ? OR u.phone LIKE ?)';
-            array_push($bind, "%{$kw}%", "%{$kw}%", "%{$kw}%");
-        }
-        if (Req::str('status') !== '') {
-            $where[] = 'u.status = ?';
-            $bind[]  = Req::int('status');
-        }
         [$page, $size, $offset] = Req::page();
-        $w = implode(' AND ', $where);
-        $total = (int) Db::val("SELECT COUNT(*) FROM sys_user u WHERE {$w}", $bind);
-        $rows  = Db::all(
-            "SELECT u.id, u.username, u.real_name, u.phone, u.email, u.dept, u.role_id, u.status,
-                    u.last_login_at, u.last_login_ip, u.created_at, r.name AS role_name
-               FROM sys_user u LEFT JOIN sys_role r ON r.id = u.role_id
-              WHERE {$w} ORDER BY u.id DESC LIMIT {$size} OFFSET {$offset}",
-            $bind
-        );
+        [$rows, $total] = UserRepo::page(Req::str('keyword'), Req::str('status'), $page, $size, $offset);
         Response::page($rows, $total, $page, $size);
     }
 
@@ -77,10 +63,10 @@ class SystemController
         if (strlen($pwd) < 6) {
             Response::fail('密码至少 6 位');
         }
-        if (Db::val('SELECT id FROM sys_user WHERE username = ?', [$username])) {
+        if (UserRepo::existsUsername($username)) {
             Response::fail('账号已存在');
         }
-        $id = Db::insert('sys_user', [
+        $id = UserRepo::create([
             'username'      => $username,
             'real_name'     => $real,
             'password_hash' => password_hash($pwd, PASSWORD_DEFAULT),
@@ -99,7 +85,7 @@ class SystemController
     {
         Auth::requireLogin();
         $id = (int) $p['id'];
-        if (!Db::val('SELECT id FROM sys_user WHERE id = ? AND is_deleted = 0', [$id])) {
+        if (!UserRepo::exists($id)) {
             Response::fail('员工不存在');
         }
         $data = [
@@ -112,7 +98,7 @@ class SystemController
         ];
         $newName = Req::str('username');
         if ($newName !== '') {
-            if (Db::val('SELECT id FROM sys_user WHERE username = ? AND id <> ?', [$newName, $id])) {
+            if (UserRepo::existsUsername($newName, $id)) {
                 Response::fail('账号已存在');
             }
             $data['username'] = $newName;
@@ -120,7 +106,7 @@ class SystemController
         if ($id === Auth::id() && (int) $data['status'] !== 1) {
             Response::fail('不能停用自己');
         }
-        Db::update('sys_user', $data, 'id = ?', [$id]);
+        UserRepo::update($id, $data);
         App::log('staff', 'update', $id, $data);
         Response::ok(null, '已保存');
     }
@@ -132,7 +118,7 @@ class SystemController
         if ($id === Auth::id()) {
             Response::fail('不能删除自己');
         }
-        Db::update('sys_user', ['is_deleted' => 1, 'status' => 0], 'id = ?', [$id]);
+        UserRepo::softDelete($id);
         App::log('staff', 'delete', $id);
         Response::ok(null, '已删除');
     }
@@ -145,7 +131,7 @@ class SystemController
         if (strlen($pwd) < 6) {
             Response::fail('密码至少 6 位');
         }
-        Db::update('sys_user', ['password_hash' => password_hash($pwd, PASSWORD_DEFAULT)], 'id = ?', [$id]);
+        UserRepo::setPassword($id, password_hash($pwd, PASSWORD_DEFAULT));
         App::log('staff', 'reset', $id);
         Response::ok(null, '密码已重置');
     }
@@ -155,16 +141,7 @@ class SystemController
     public static function roleList(): void
     {
         Auth::requireLogin();
-        $rows = Db::all('SELECT * FROM sys_role ORDER BY id');
-        foreach ($rows as &$r) {
-            $r['permission_ids'] = array_map('intval', array_column(
-                Db::all('SELECT permission_id FROM sys_role_permission WHERE role_id = ?', [(int) $r['id']]),
-                'permission_id'
-            ));
-            $r['user_count'] = (int) Db::val('SELECT COUNT(*) FROM sys_user WHERE role_id = ? AND is_deleted = 0', [(int) $r['id']]);
-        }
-        unset($r);
-        Response::ok($rows);
+        Response::ok(RoleRepo::list());
     }
 
     public static function roleStore(): void
@@ -172,11 +149,11 @@ class SystemController
         Auth::requireLogin();
         $name = Req::require_('name', '角色名称');
         $code = Req::require_('code', '角色标识');
-        if (Db::val('SELECT id FROM sys_role WHERE code = ?', [$code])) {
+        if (RoleRepo::codeExists($code)) {
             Response::fail('角色标识已存在');
         }
-        $id = Db::insert('sys_role', ['name' => $name, 'code' => $code, 'remark' => Req::str('remark'), 'status' => 1, 'created_at' => App::now()]);
-        self::syncRolePermission($id, Req::arr('permission_ids'));
+        $id = RoleRepo::create(['name' => $name, 'code' => $code, 'remark' => Req::str('remark'), 'status' => 1, 'created_at' => App::now()]);
+        RoleRepo::syncPermissions($id, Req::arr('permission_ids'));
         App::log('role', 'create', $id, $name);
         Response::ok(['id' => $id], '已新增');
     }
@@ -185,16 +162,15 @@ class SystemController
     {
         Auth::requireLogin();
         $id = (int) $p['id'];
-        $role = Db::one('SELECT * FROM sys_role WHERE id = ?', [$id]);
-        if (!$role) {
+        if (!RoleRepo::find($id)) {
             Response::fail('角色不存在');
         }
-        Db::update('sys_role', [
+        RoleRepo::update($id, [
             'name'   => Req::require_('name', '角色名称'),
             'remark' => Req::str('remark'),
             'status' => Req::int('status', 1),
-        ], 'id = ?', [$id]);
-        self::syncRolePermission($id, Req::arr('permission_ids'));
+        ]);
+        RoleRepo::syncPermissions($id, Req::arr('permission_ids'));
         App::log('role', 'update', $id);
         Response::ok(null, '已保存');
     }
@@ -203,65 +179,30 @@ class SystemController
     {
         Auth::requireLogin();
         $id = (int) $p['id'];
-        self::syncRolePermission($id, Req::arr('permission_ids'));
+        RoleRepo::syncPermissions($id, Req::arr('permission_ids'));
         App::log('role', 'permission', $id);
         Response::ok(null, '权限已保存');
-    }
-
-    private static function syncRolePermission(int $roleId, array $ids): void
-    {
-        $ids = array_values(array_unique(array_map('intval', $ids)));
-        $ids = array_values(array_filter($ids, static function ($v) { return $v > 0; }));
-
-        /* 自动补上祖先节点：菜单下发时要求父节点也在授权里（见 AuthController::menu()），
-           否则子节点会被静默丢弃。前端 el-tree 勾选时半选的父节点会一并提交，
-           但直接调接口 / 手写 SQL 很容易漏掉父节点，导致「授权了却看不到」——
-           这里从接口层兜住，保证库里不会出现「有子授权、无父授权」的悬空记录。 */
-        if ($ids) {
-            $parents = [];
-            foreach (Db::all('SELECT id, parent_id FROM sys_permission') as $row) {
-                $parents[(int) $row['id']] = (int) $row['parent_id'];
-            }
-            $add = $ids;
-            foreach ($ids as $id) {
-                $cur = $id;
-                for ($guard = 0; $guard < 100; $guard++) {
-                    $pid = $parents[$cur] ?? 0;
-                    if ($pid <= 0 || !isset($parents[$pid])) {
-                        break;
-                    }
-                    $add[] = $pid;
-                    $cur = $pid;
-                }
-            }
-            $ids = array_values(array_unique($add));
-        }
-
-        Db::exec('DELETE FROM sys_role_permission WHERE role_id = ?', [$roleId]);
-        foreach ($ids as $pid) {
-            Db::exec('INSERT IGNORE INTO sys_role_permission (role_id, permission_id) VALUES (?,?)', [$roleId, $pid]);
-        }
     }
 
     public static function roleDelete(array $p): void
     {
         Auth::requireLogin();
-        $id = (int) $p['id'];
-        if (Db::val('SELECT code FROM sys_role WHERE id = ?', [$id]) === 'super') {
+        $id   = (int) $p['id'];
+        $role = RoleRepo::find($id);
+        if (($role['code'] ?? '') === 'super') {
             Response::fail('超级管理员角色不能删除');
         }
-        if (Db::val('SELECT COUNT(*) FROM sys_user WHERE role_id = ? AND is_deleted = 0', [$id])) {
+        if (UserRepo::countByRole($id)) {
             Response::fail('该角色下还有员工，不能删除');
         }
-        Db::exec('DELETE FROM sys_role WHERE id = ?', [$id]);
-        Db::exec('DELETE FROM sys_role_permission WHERE role_id = ?', [$id]);
+        RoleRepo::delete($id);
         Response::ok(null, '已删除');
     }
 
     public static function permissionTree(): void
     {
         Auth::requireLogin();
-        $all = Db::all('SELECT id, parent_id, name, code, type, path, icon, sort, status FROM sys_permission ORDER BY sort, id');
+        $all = PermissionRepo::all();
 
         /* ⚠️ 这里必须按**任意层级**递归组装，不能写成「只把 parent_id=0 的当父节点」那种两层写法。
            两类节点都是两层，加了 type=2 的按钮节点之后就有了第三层
@@ -296,7 +237,7 @@ class SystemController
         $path   = trim(Req::str('path'));
         self::assertPermissionInput($code, $parent, $path, 0);
 
-        $id = Db::insert('sys_permission', [
+        $id = PermissionRepo::create([
             'parent_id' => $parent,
             'name'      => Req::require_('name', '菜单名称'),
             'code'      => $code,
@@ -314,7 +255,7 @@ class SystemController
     {
         Auth::requireLogin();
         $id  = (int) $p['id'];
-        $old = Db::one('SELECT id, name FROM sys_permission WHERE id = ?', [$id]);
+        $old = PermissionRepo::find($id);
         if (!$old) {
             Response::fail('菜单节点不存在，请刷新后重试');
         }
@@ -327,7 +268,7 @@ class SystemController
             Response::fail('不能把「' . $old['name'] . '」挂到它自己的下级菜单里，会形成死循环');
         }
 
-        Db::update('sys_permission', [
+        PermissionRepo::update($id, [
             'parent_id' => $parent,
             'name'      => Req::require_('name', '菜单名称'),
             'code'      => $code,
@@ -336,7 +277,7 @@ class SystemController
             'icon'      => trim(Req::str('icon')),
             'sort'      => Req::int('sort', 0),
             'status'    => Req::int('status', 1) === 0 ? 0 : 1,
-        ], 'id = ?', [$id]);
+        ]);
         App::log('permission', 'update', $id, $code);
         Response::ok(null, '已保存，刷新页面即可生效');
     }
@@ -345,19 +286,18 @@ class SystemController
     {
         Auth::requireLogin();
         $id  = (int) $p['id'];
-        $row = Db::one('SELECT id, name FROM sys_permission WHERE id = ?', [$id]);
+        $row = PermissionRepo::find($id);
         if (!$row) {
             Response::fail('菜单节点不存在，请刷新后重试');
         }
 
-        $child = (int) Db::val('SELECT COUNT(*) FROM sys_permission WHERE parent_id = ?', [$id]);
+        $child = PermissionRepo::childCount($id);
         if ($child > 0) {
             Response::fail('「' . $row['name'] . '」下面还有 ' . $child . ' 个下级菜单，请先删除下级');
         }
 
-        $used = (int) Db::val('SELECT COUNT(*) FROM sys_role_permission WHERE permission_id = ?', [$id]);
-        Db::exec('DELETE FROM sys_permission WHERE id = ?', [$id]);
-        Db::exec('DELETE FROM sys_role_permission WHERE permission_id = ?', [$id]);
+        $used = PermissionRepo::roleLinkCount($id);
+        PermissionRepo::delete($id);
         App::log('permission', 'delete', $id, $row['name']);
         Response::ok(
             ['roles_affected' => $used],
@@ -374,18 +314,18 @@ class SystemController
         if ($parent > 0 && $parent === $excludeId) {
             Response::fail('上级菜单不能选自己');
         }
-        if ($parent > 0 && !Db::val('SELECT id FROM sys_permission WHERE id = ?', [$parent])) {
+        if ($parent > 0 && !PermissionRepo::exists($parent)) {
             Response::fail('上级菜单不存在（id=' . $parent . '），可能已被别人删掉了，请刷新后重试');
         }
 
-        $hit = Db::one('SELECT name FROM sys_permission WHERE code = ? AND id <> ? LIMIT 1', [$code, $excludeId]);
+        $hit = PermissionRepo::codeOwner($code, $excludeId);
         if ($hit) {
             Response::fail('权限标识「' . $code . '」已被「' . $hit['name'] . '」占用，换一个');
         }
 
         // 同一个页面路径挂两个菜单 → 左侧出现两个入口、且都去同一个页面，直接拦掉
         if ($path !== '') {
-            $dup = Db::one('SELECT name FROM sys_permission WHERE path = ? AND id <> ? LIMIT 1', [$path, $excludeId]);
+            $dup = PermissionRepo::pathOwner($path, $excludeId);
             if ($dup) {
                 Response::fail('页面「' . $path . '」已经挂在菜单「' . $dup['name'] . '」下了，不能重复添加');
             }
@@ -401,7 +341,7 @@ class SystemController
             if ($cur === $rootId) {
                 return true;
             }
-            $cur = (int) Db::val('SELECT parent_id FROM sys_permission WHERE id = ?', [$cur]);
+            $cur = PermissionRepo::parentId($cur);
         }
         return false;
     }
@@ -411,7 +351,7 @@ class SystemController
     public static function configList(): void
     {
         Auth::requireLogin();
-        $rows = Db::all('SELECT * FROM sys_config ORDER BY id');
+        $rows = ConfigRepo::list();
         $out  = [];
         foreach ($rows as $r) {
             $out[$r['cfg_key']] = $r['cfg_value'];
@@ -426,18 +366,7 @@ class SystemController
         if (!is_array($map)) {
             Response::fail('参数格式不正确');
         }
-        foreach ($map as $k => $v) {
-            $k = (string) $k;
-            if ($k === '') {
-                continue;
-            }
-            $exists = Db::val('SELECT id FROM sys_config WHERE cfg_key = ?', [$k]);
-            if ($exists) {
-                Db::update('sys_config', ['cfg_value' => is_scalar($v) ? (string) $v : json_encode($v, JSON_UNESCAPED_UNICODE)], 'cfg_key = ?', [$k]);
-            } else {
-                Db::insert('sys_config', ['group_key' => 'basic', 'cfg_key' => $k, 'cfg_value' => is_scalar($v) ? (string) $v : json_encode($v, JSON_UNESCAPED_UNICODE)]);
-            }
-        }
+        ConfigRepo::save($map);
         App::log('config', 'save', null, array_keys($map));
         Response::ok(null, '已保存');
     }
@@ -447,14 +376,7 @@ class SystemController
     public static function dictList(): void
     {
         Auth::requireLogin();
-        $type = Req::str('type');
-        $where = ['1=1'];
-        $bind  = [];
-        if ($type !== '') {
-            $where[] = 'dict_type = ?';
-            $bind[]  = $type;
-        }
-        Response::ok(Db::all('SELECT * FROM sys_dict WHERE ' . implode(' AND ', $where) . ' ORDER BY dict_type, sort, id', $bind));
+        Response::ok(DictRepo::list(Req::str('type')));
     }
 
     public static function dictStore(): void
@@ -463,10 +385,10 @@ class SystemController
         $type = Req::require_('dict_type', '字典类型');
         $key  = Req::require_('dict_key', '键');
         /* sys_dict 上有 (dict_type, dict_key) 唯一键，先查一次给出人话提示 */
-        if (Db::val('SELECT id FROM sys_dict WHERE dict_type = ? AND dict_key = ?', [$type, $key])) {
+        if (DictRepo::keyExists($type, $key)) {
             Response::fail('该类型下已存在键「' . $key . '」，请换个键或直接编辑已有项');
         }
-        $id = Db::insert('sys_dict', [
+        $id = DictRepo::create([
             'dict_type'  => $type,
             'dict_key'   => $key,
             'dict_value' => Req::require_('dict_value', '值'),
@@ -481,23 +403,23 @@ class SystemController
         Auth::requireLogin();
         $type = Req::require_('dict_type', '字典类型');
         $key  = Req::require_('dict_key', '键');
-        if (Db::val('SELECT id FROM sys_dict WHERE dict_type = ? AND dict_key = ? AND id <> ?', [$type, $key, (int) $p['id']])) {
+        if (DictRepo::keyExists($type, $key, (int) $p['id'])) {
             Response::fail('该类型下已存在键「' . $key . '」');
         }
-        Db::update('sys_dict', [
+        DictRepo::update((int) $p['id'], [
             'dict_type'  => Req::require_('dict_type', '字典类型'),
             'dict_key'   => Req::require_('dict_key', '键'),
             'dict_value' => Req::require_('dict_value', '值'),
             'sort'       => Req::int('sort'),
             'status'     => Req::int('status', 1),
-        ], 'id = ?', [(int) $p['id']]);
+        ]);
         Response::ok(null, '已保存');
     }
 
     public static function dictDelete(array $p): void
     {
         Auth::requireLogin();
-        Db::exec('DELETE FROM sys_dict WHERE id = ?', [(int) $p['id']]);
+        DictRepo::delete((int) $p['id']);
         Response::ok(null, '已删除');
     }
 
@@ -505,12 +427,7 @@ class SystemController
     {
         Auth::requireLogin();
         [$page, $size, $offset] = Req::page();
-        $rows = Db::all(
-            "SELECT l.*, u.real_name AS operator_name FROM sys_log l
-               LEFT JOIN sys_user u ON u.id = l.user_id
-              ORDER BY l.id DESC LIMIT {$size} OFFSET {$offset}"
-        );
-        $total = (int) Db::val('SELECT COUNT(*) FROM sys_log');
+        [$rows, $total] = LogRepo::page($size, $offset);
         Response::page($rows, $total, $page, $size);
     }
 }

@@ -3,10 +3,11 @@ namespace QG\controllers;
 
 use QG\App;
 use QG\Auth;
-use QG\Db;
 use QG\Req;
 use QG\Response;
 use QG\Router;
+use QG\repos\PermissionRepo;
+use QG\repos\UserRepo;
 
 class AuthController
 {
@@ -27,7 +28,7 @@ class AuthController
             Response::fail('密码不能为空');
         }
 
-        $u = Db::one('SELECT * FROM sys_user WHERE username = ? AND is_deleted = 0 LIMIT 1', [$username]);
+        $u = UserRepo::findByUsername($username);
         if (!$u || !password_verify($password, $u['password_hash'])) {
             Response::fail('账号或密码错误');
         }
@@ -35,7 +36,7 @@ class AuthController
             Response::fail('该账号已被停用，请联系管理员');
         }
 
-        Db::update('sys_user', ['last_login_at' => App::now(), 'last_login_ip' => App::ip()], 'id = ?', [$u['id']]);
+        UserRepo::touchLogin((int) $u['id']);
         Auth::login($u);
         App::log('auth', 'login', $u['id'], $username);
         unset($u['password_hash']);
@@ -64,11 +65,11 @@ class AuthController
         if (strlen($new) < 6) {
             Response::fail('新密码至少 6 位');
         }
-        $row = Db::one('SELECT password_hash FROM sys_user WHERE id = ?', [$u['id']]);
-        if (!$row || !password_verify($old, $row['password_hash'])) {
+        $hash = UserRepo::passwordHash((int) $u['id']);
+        if (!$hash || !password_verify($old, $hash)) {
             Response::fail('原密码不正确');
         }
-        Db::update('sys_user', ['password_hash' => password_hash($new, PASSWORD_DEFAULT)], 'id = ?', [$u['id']]);
+        UserRepo::setPassword((int) $u['id'], password_hash($new, PASSWORD_DEFAULT));
         App::log('auth', 'password', $u['id']);
         Response::ok(null, '密码已修改');
     }
@@ -77,7 +78,7 @@ class AuthController
     {
         Auth::requireLogin();
         $codes = Auth::permissionCodes();
-        $all   = Db::all('SELECT id, parent_id, name, code, type, path, icon, sort FROM sys_permission WHERE status = 1 AND type = 1 ORDER BY sort, id');
+        $all   = PermissionRepo::menuList();
 
         $allow = static function (array $p) use ($codes): bool {
             return in_array('*', $codes, true) || in_array($p['code'], $codes, true);

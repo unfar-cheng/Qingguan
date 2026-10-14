@@ -58,15 +58,7 @@ class App
     public static function log(string $module, string $action, $targetId = null, $detail = null): void
     {
         try {
-            Db::insert('sys_log', [
-                'user_id'    => Auth::id(),
-                'module'     => $module,
-                'action'     => $action,
-                'target_id'  => $targetId,
-                'detail'     => is_scalar($detail) ? (string) $detail : json_encode($detail, JSON_UNESCAPED_UNICODE),
-                'ip'         => self::ip(),
-                'created_at' => self::now(),
-            ]);
+            repos\LogRepo::write($module, $action, $targetId, $detail);
         } catch (\Throwable $e) {
         }
     }
