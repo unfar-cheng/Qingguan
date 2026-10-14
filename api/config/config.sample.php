@@ -9,6 +9,15 @@ return [
         'pass'    => 'CHANGE_ME',
         'charset' => 'utf8mb4',
     ],
+    // 控制面库（租户/套餐/平台管理员/平台审计），与业务库分开
+    'control_db' => [
+        'host'    => '127.0.0.1',
+        'port'    => 3306,
+        'name'    => 'qingguan_control',
+        'user'    => 'qingguan',
+        'pass'    => 'CHANGE_ME',
+        'charset' => 'utf8mb4',
+    ],
     'app' => [
         'secret'       => 'CHANGE_ME_TO_A_LONG_RANDOM_STRING',
         'token_ttl'    => 86400 * 7,
