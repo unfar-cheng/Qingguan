@@ -67,14 +67,14 @@
 **文件：**
 - 创建：`tests/lib.php`、`tests/run.php`
 
-- [ ] **步骤 1：切分支**
+- [x] **步骤 1：切分支**
 
 ```bash
 cd /data/qingguan/app
 git checkout -b feat/multi-tenant-foundation
 ```
 
-- [ ] **步骤 2：写极简断言器**
+- [x] **步骤 2：写极简断言器**
 
 `tests/lib.php`：
 
@@ -109,7 +109,7 @@ function assert_contains(string $hay, string $needle, string $msg = ''): void
 }
 ```
 
-- [ ] **步骤 3：写 runner**
+- [x] **步骤 3：写 runner**
 
 `tests/run.php`：
 
@@ -136,12 +136,12 @@ echo "\n{$pass} passed, {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);
 ```
 
-- [ ] **步骤 4：跑一次（此刻应 0 passed, 0 failed，退出码 0）**
+- [x] **步骤 4：跑一次（此刻应 0 passed, 0 failed，退出码 0）**
 
 运行：`php tests/run.php`
 预期：输出 `0 passed, 0 failed`，无报错。
 
-- [ ] **步骤 5：Commit**
+- [x] **步骤 5：Commit**
 
 ```bash
 git add tests/lib.php tests/run.php
@@ -158,7 +158,7 @@ git commit -m "test: 增加极简断言器与测试 runner"
 - 创建：`db/control/schema.sql`
 - 修改：`api/config/config.sample.php`、`api/config/config.php`
 
-- [ ] **步骤 1：写控制面 DDL**
+- [x] **步骤 1：写控制面 DDL**
 
 `db/control/schema.sql`：
 
@@ -241,7 +241,7 @@ INSERT INTO `saas_plan` (`code`,`name`,`mode`,`price_month`,`price_year`,`max_us
   ('isolated', '隔离版（独享）', 'dedicated', 1500.00, 15000.00, 50, 50000, '独立数据库，物理隔离（二期开通）', 1, 2);
 ```
 
-- [ ] **步骤 2：建库并导入**
+- [x] **步骤 2：建库并导入**
 
 运行：
 ```bash
@@ -251,7 +251,7 @@ mysql -h 127.0.0.1 -u root -p qingguan_control -e "SELECT id,code,mode,price_mon
 ```
 预期：两条套餐记录。
 
-- [ ] **步骤 3：给租户库账号授权控制面只读+租户表读写**
+- [x] **步骤 3：给租户库账号授权控制面只读+租户表读写**
 
 > 便于后端用同一个账号连接两库；也可给控制面单独账号。此处复用 `qingguan` 账号并授权控制面库。
 
@@ -261,7 +261,7 @@ mysql -h 127.0.0.1 -u root -p -e "GRANT SELECT, INSERT, UPDATE ON qingguan_contr
 ```
 预期：无报错。
 
-- [ ] **步骤 4：config 增加控制面段**
+- [x] **步骤 4：config 增加控制面段**
 
 在 `api/config/config.sample.php` 的 `return [...]` 顶层、`'db'` 之后加入：
 
@@ -278,7 +278,7 @@ mysql -h 127.0.0.1 -u root -p -e "GRANT SELECT, INSERT, UPDATE ON qingguan_contr
 
 并在本机 `api/config/config.php` 同步加一段（`pass` 填真实密码；该文件不入库）。
 
-- [ ] **步骤 5：Commit**
+- [x] **步骤 5：Commit**
 
 ```bash
 git add db/control/schema.sql api/config/config.sample.php
@@ -291,7 +291,7 @@ git commit -m "feat: 增加控制面库结构与配置项"
 - 创建：`api/src/ControlDb.php`
 - 测试：`tests/test_control_db.php`
 
-- [ ] **步骤 1：写失败测试**
+- [x] **步骤 1：写失败测试**
 
 `tests/test_control_db.php`：
 
@@ -306,7 +306,7 @@ t('ControlDb 能连上控制面并读到套餐', function () {
 });
 ```
 
-- [ ] **步骤 2：写 bootstrap**
+- [x] **步骤 2：写 bootstrap**
 
 `tests/bootstrap.php`：
 
@@ -325,12 +325,12 @@ require $root . '/src/App.php';
 require $root . '/src/Response.php';
 ```
 
-- [ ] **步骤 3：运行测试验证失败**
+- [x] **步骤 3：运行测试验证失败**
 
 运行：`php tests/run.php`
 预期：FAIL，报错 `Class "QG\ControlDb" not found`。
 
-- [ ] **步骤 4：实现 ControlDb**
+- [x] **步骤 4：实现 ControlDb**
 
 `api/src/ControlDb.php`：
 
@@ -395,12 +395,12 @@ class ControlDb
 }
 ```
 
-- [ ] **步骤 5：运行测试验证通过**
+- [x] **步骤 5：运行测试验证通过**
 
 运行：`php tests/run.php`
 预期：`PASS  ControlDb 能连上控制面并读到套餐`。
 
-- [ ] **步骤 6：Commit**
+- [x] **步骤 6：Commit**
 
 ```bash
 git add api/src/ControlDb.php tests/bootstrap.php tests/test_control_db.php
@@ -416,7 +416,7 @@ git commit -m "feat: 增加控制面连接 ControlDb"
 **文件：**
 - 创建：`db/migration_20261015_multitenant.sql`
 
-- [ ] **步骤 1：写迁移脚本**
+- [x] **步骤 1：写迁移脚本**
 
 > 规则：**21 张表全部加 `tenant_id INT UNSIGNED NOT NULL DEFAULT 1`**；把现有唯一键改成带 `tenant_id` 的复合键；业务表 `tenant_id` 前置为第一列。脚本幂等（用 `INFORMATION_SCHEMA` 判断列/索引是否存在），可重复执行。
 
@@ -452,7 +452,7 @@ ALTER TABLE `org_company` ADD KEY `idx_tenant_list` (`tenant_id`,`is_deleted`,`i
 ALTER TABLE `biz_order_file` ADD KEY `idx_tenant_order` (`tenant_id`,`order_id`);
 ```
 
-- [ ] **步骤 2：在本机测试库上跑一遍**
+- [x] **步骤 2：在本机测试库上跑一遍**
 
 运行（用 dev 库，先备份）：
 ```bash
@@ -462,7 +462,7 @@ mysql -h 127.0.0.1 -u qingguan -p qingguan -e "SHOW CREATE TABLE sys_user\G" | g
 ```
 预期：`sys_user` 出现 `tenant_id` 列与 `uk_tenant_username`。
 
-- [ ] **步骤 3：写测试断言结构与回填**
+- [x] **步骤 3：写测试断言结构与回填**
 
 `tests/test_schema_mt.php`：
 
@@ -485,7 +485,7 @@ t('所有表都有 tenant_id 且现有行归租户 1', function () {
 
 > 注意：此测试需要 `Tenant` 上下文（`Db::val` 走数据面连接）。阶段 3 完成后 `Db::pdo()` 才能工作；本步骤先临时把该测试改为直连 `QG\ControlDb` 之外的普通 PDO 亦可，或在阶段 3 后一并跑。**执行者请把本测试放到任务 6 之后再跑通。**
 
-- [ ] **步骤 4：Commit**
+- [x] **步骤 4：Commit**
 
 ```bash
 git add db/migration_20261015_multitenant.sql tests/test_schema_mt.php
@@ -497,7 +497,7 @@ git commit -m "feat: 数据面迁移——全表加 tenant_id 并改造唯一键
 **文件：**
 - 创建：`db/control/seed_tenant1.sql`
 
-- [ ] **步骤 1：写种子 SQL**
+- [x] **步骤 1：写种子 SQL**
 
 ```sql
 SET NAMES utf8mb4;
@@ -508,7 +508,7 @@ VALUES
    (SELECT `id` FROM `saas_plan` WHERE `code`='basic'),'active','系统管理员','admin',NOW(),NOW());
 ```
 
-- [ ] **步骤 2：导入并核对**
+- [x] **步骤 2：导入并核对**
 
 运行：
 ```bash
@@ -517,7 +517,7 @@ mysql -h 127.0.0.1 -u qingguan -p qingguan_control -e "SELECT id,code,mode,statu
 ```
 预期：一行 `demo / shared / active`。
 
-- [ ] **步骤 3：Commit**
+- [x] **步骤 3：Commit**
 
 ```bash
 git add db/control/seed_tenant1.sql
@@ -534,7 +534,7 @@ git commit -m "feat: 登记租户 #1（原有单机数据）"
 - 创建：`api/src/Tenant.php`
 - 测试：`tests/test_tenant_context.php`
 
-- [ ] **步骤 1：写失败测试**
+- [x] **步骤 1：写失败测试**
 
 `tests/test_tenant_context.php`：
 
@@ -558,12 +558,12 @@ t('Tenant 设置后能读回 id 与 mode', function () {
 });
 ```
 
-- [ ] **步骤 2：运行验证失败**
+- [x] **步骤 2：运行验证失败**
 
 运行：`php tests/run.php`
 预期：FAIL，`Class "QG\Tenant" not found`。
 
-- [ ] **步骤 3：实现 Tenant**
+- [x] **步骤 3：实现 Tenant**
 
 `api/src/Tenant.php`：
 
@@ -637,12 +637,12 @@ class Tenant
 }
 ```
 
-- [ ] **步骤 4：运行验证通过**
+- [x] **步骤 4：运行验证通过**
 
 运行：`php tests/run.php`
 预期：两个 Tenant 用例 PASS。
 
-- [ ] **步骤 5：Commit**
+- [x] **步骤 5：Commit**
 
 ```bash
 git add api/src/Tenant.php tests/test_tenant_context.php
@@ -654,7 +654,7 @@ git commit -m "feat: 增加租户运行期上下文 Tenant"
 **文件：**
 - 修改：`api/src/Db.php:11-33`
 
-- [ ] **步骤 1：改 `Db::pdo()`**
+- [x] **步骤 1：改 `Db::pdo()`**
 
 把 `api/src/Db.php` 里的 `pdo()` 方法体整体替换为：
 
@@ -667,7 +667,7 @@ git commit -m "feat: 增加租户运行期上下文 Tenant"
 
 （`all/one/val/exec/insert/update/begin/commit/rollback` 全部不变，它们内部都调 `self::pdo()`。）
 
-- [ ] **步骤 2：加一条集成测试（需 DB）**
+- [x] **步骤 2：加一条集成测试（需 DB）**
 
 `tests/test_db_tenant.php`：
 
@@ -682,12 +682,12 @@ t('设置租户上下文后 Db 能读数据', function () {
 });
 ```
 
-- [ ] **步骤 3：运行阶段 2 与阶段 3 的测试**
+- [x] **步骤 3：运行阶段 2 与阶段 3 的测试**
 
 运行：`php tests/run.php`
 预期：`test_schema_mt`、`test_db_tenant`、`test_tenant_context` 全 PASS（此步把任务 3 步骤 3 的测试也跑通）。
 
-- [ ] **步骤 4：Commit**
+- [x] **步骤 4：Commit**
 
 ```bash
 git add api/src/Db.php tests/test_db_tenant.php
@@ -713,7 +713,7 @@ git commit -m "refactor: Db 连接委托给租户上下文"
 2. **仓储里每条碰业务表的 SQL 都必须出现 `tenant_id`**（主表用 `xxx.tenant_id = ?`；`INSERT`/`UPDATE` 的数据里带 `tenant_id`；子表通过 `order_id` 关联时也要在子查询里补 `tenant_id`）。
 3. **`tenant_id` 只在仓储里注入**：写方法统一 `$data['tenant_id'] = Tenant::requireId();`；读方法统一 `?` 绑定 `Tenant::requireId()`。
 
-- [ ] **步骤 1：写守卫脚本**
+- [x] **步骤 1：写守卫脚本**
 
 `tests/guard_no_raw_business_sql.php`：
 
@@ -763,7 +763,7 @@ if ($errors) { fwrite(STDERR, implode("\n", array_unique($errors)) . "\n"); exit
 echo "guard ok\n";
 ```
 
-- [ ] **步骤 2：接入 runner**
+- [x] **步骤 2：接入 runner**
 
 `tests/test_guard.php`：
 
@@ -778,12 +778,12 @@ t('守卫：无仓储外 Db:: 调用、仓储 SQL 均带 tenant_id', function ()
 });
 ```
 
-- [ ] **步骤 3：运行（此刻会失败——因为 controller 还在直接调 Db::）**
+- [x] **步骤 3：运行（此刻会失败——因为 controller 还在直接调 Db::）**
 
 运行：`php tests/run.php`
 预期：`FAIL  守卫...`，列出当前所有「仓储外直接用了 Db::」的位置（就是待迁移清单）。
 
-- [ ] **步骤 4：Commit（守卫与失败清单一起入库，作为迁移基线）**
+- [x] **步骤 4：Commit（守卫与失败清单一起入库，作为迁移基线）**
 
 ```bash
 git add tests/guard_no_raw_business_sql.php tests/test_guard.php
@@ -797,7 +797,7 @@ git commit -m "test: 增加租户隔离守卫脚本（当前红灯=待迁移清�
 - 修改：`api/src/controllers/OrgController.php`
 - 测试：`tests/test_repo_company.php`
 
-- [ ] **步骤 1：写 CompanyRepo（含真实 SQL）**
+- [x] **步骤 1：写 CompanyRepo（含真实 SQL）**
 
 `api/src/repos/CompanyRepo.php`：
 
@@ -894,7 +894,7 @@ class CompanyRepo
 
 > 执行者：`orderStats` 的聚合口径以 `OrgController::stats()`/`statOf()` 现有实现为准，按上面的写法补 `tenant_id`；`o.deleted_at` 若 `biz_order` 用的是 `is_deleted` 则相应调整。
 
-- [ ] **步骤 2：改写 OrgController 调用仓储**
+- [x] **步骤 2：改写 OrgController 调用仓储**
 
 把 `OrgController.php` 里所有 `Db::` 调用替换为 `CompanyRepo::` 对应方法（`use QG\repos\CompanyRepo;`）。例如 `index()` 里：
 
@@ -903,7 +903,7 @@ class CompanyRepo
         // 原 self::statOf() 内的聚合改为 CompanyRepo::orderStats($id)
 ```
 
-- [ ] **步骤 3：写测试**
+- [x] **步骤 3：写测试**
 
 `tests/test_repo_company.php`：
 
@@ -919,12 +919,12 @@ t('CompanyRepo 只返回本租户的记录', function () {
 });
 ```
 
-- [ ] **步骤 4：运行**
+- [x] **步骤 4：运行**
 
 运行：`php tests/run.php`
 预期：`CompanyRepo` 用例 PASS；守卫里 OrgController 的报错消失。
 
-- [ ] **步骤 5：Commit**
+- [x] **步骤 5：Commit**
 
 ```bash
 git add api/src/repos/CompanyRepo.php api/src/controllers/OrgController.php tests/test_repo_company.php
@@ -937,7 +937,7 @@ git commit -m "refactor: OrgController 迁移进 CompanyRepo（含 tenant_id 隔
 - 创建：`api/src/repos/PlanRepo.php`
 - 修改：`api/src/controllers/PlanController.php`
 
-- [ ] **步骤 1：实现 PlanRepo**
+- [x] **步骤 1：实现 PlanRepo**
 
 按任务 8 的配方，把 `PlanController.php` 的 9 处 `Db::`（`all` 列表 / `one` 详情 / `val` 存在性 / `insert` / `update` / `exec` 删除）迁进 `PlanRepo`，全部补 `tenant_id`。方法：`page() / find($id) / exists($id) / create($data) / update($id,$data) / softDelete($id) / usedByOrders($planId)`。
 
@@ -957,9 +957,9 @@ git commit -m "refactor: OrgController 迁移进 CompanyRepo（含 tenant_id 隔
 
 > 注意 `biz_plan.plan_code` 现已带 `tenant_id` 复合唯一键，查重时要 `WHERE tenant_id = ? AND plan_code = ? AND id <> ?`。
 
-- [ ] **步骤 2：改写 PlanController 调仓储**
+- [x] **步骤 2：改写 PlanController 调仓储**
 
-- [ ] **步骤 3：写测试**
+- [x] **步骤 3：写测试**
 
 `tests/test_repo_plan.php`：
 
@@ -980,7 +980,7 @@ t('PlanRepo 同租户可复用 plan_code、跨租户互不影响', function () {
 });
 ```
 
-- [ ] **步骤 4：运行 + Commit**
+- [x] **步骤 4：运行 + Commit**
 
 运行：`php tests/run.php` → 预期 PASS。
 ```bash
@@ -994,7 +994,7 @@ git commit -m "refactor: PlanController 迁移进 PlanRepo"
 - 创建：`api/src/repos/FinanceRepo.php`
 - 修改：`api/src/controllers/FinanceController.php`
 
-- [ ] **步骤 1：实现 FinanceRepo**
+- [x] **步骤 1：实现 FinanceRepo**
 
 覆盖 `fin_account / fin_recharge / fin_payable`（其中充值审核走事务，事务里每一条 SQL 都要带 `tenant_id`）。方法：`accounts() / rechargePage() / payablePage() / createRecharge($data) / approveRecharge($id)` 等，按 `FinanceController.php` 现有 29 处 `Db::` 逐一映射。
 
@@ -1020,8 +1020,8 @@ git commit -m "refactor: PlanController 迁移进 PlanRepo"
     }
 ```
 
-- [ ] **步骤 2：改写 FinanceController 调仓储**
-- [ ] **步骤 3：写测试**
+- [x] **步骤 2：改写 FinanceController 调仓储**
+- [x] **步骤 3：写测试**
 
 `tests/test_repo_finance.php`：
 
@@ -1056,7 +1056,7 @@ t('充值审核的事务只在同租户内生效', function () {
 ```
 
 > 列名（`account_id`/`company_id`/`balance` 等）以 `fin_account` / `fin_recharge` 的实际 schema 为准调整。
-- [ ] **步骤 4：运行 + Commit**
+- [x] **步骤 4：运行 + Commit**
 
 ```bash
 git add api/src/repos/FinanceRepo.php api/src/controllers/FinanceController.php tests/test_repo_finance.php
@@ -1069,7 +1069,7 @@ git commit -m "refactor: FinanceController 迁移进 FinanceRepo"
 - 创建：`api/src/repos/OrderRepo.php`
 - 修改：`api/src/controllers/OrderController.php`
 
-- [ ] **步骤 1：迁移列表查询**
+- [x] **步骤 1：迁移列表查询**
 
 `OrderController::LIST_SELECT`（第 13-23 行）与 `LIST_FROM`（第 25-29 行）整体搬进 `OrderRepo`，并在 `buildWhere()`（第 50-90 行起）产出的 where 里**开头追加** `o.tenant_id = ?`（绑定 `Tenant::requireId()`），同时给 `LIST_SELECT` 里三个相关子查询补 `tenant_id`：
 
@@ -1092,15 +1092,15 @@ git commit -m "refactor: FinanceController 迁移进 FinanceRepo"
 
 `LIST_FROM` 的 JOIN 都靠 `o.plan_id / o.importer_id / o.created_by`（租户内 id），保持不变；主 `WHERE` 加 `o.tenant_id = ?` 即可。
 
-- [ ] **步骤 2：迁移详情/写/子表**
+- [x] **步骤 2：迁移详情/写/子表**
 
 `show()` 的 7 张子表查询、`store()/update()` 的事务写入、`changeStatus/verify/declareIsf/addInspect/delInspect/logs` 的读写，逐条搬进 `OrderRepo` 并补 `tenant_id`（子表 `INSERT` 时 `$data['tenant_id'] = $tid`；按 `order_id` 查子表时用 `WHERE tenant_id = ? AND order_id = ?`）。
 
-- [ ] **步骤 3：权限码判定保留**
+- [x] **步骤 3：权限码判定保留**
 
 `OrderController.php:398` 的 `Auth::can($code)` 判定保留在 controller；仓储只管数据。
 
-- [ ] **步骤 4：写隔离测试（关键）**
+- [x] **步骤 4：写隔离测试（关键）**
 
 `tests/test_isolation.php`：
 
@@ -1128,7 +1128,7 @@ t('订单列表严格按租户隔离', function () {
 });
 ```
 
-- [ ] **步骤 5：运行 + Commit**
+- [x] **步骤 5：运行 + Commit**
 
 ```bash
 git add api/src/repos/OrderRepo.php api/src/controllers/OrderController.php tests/test_isolation.php
@@ -1141,7 +1141,7 @@ git commit -m "refactor: OrderController 迁移进 OrderRepo（含子表与列�
 - 创建：`api/src/repos/{UserRepo,RoleRepo,PermissionRepo,DictRepo,ConfigRepo,LogRepo}.php`
 - 修改：`api/src/controllers/SystemController.php`、`api/src/controllers/AuthController.php`、`api/src/Auth.php`、`api/src/App.php`
 
-- [ ] **步骤 1：实现各仓储**
+- [x] **步骤 1：实现各仓储**
 
 按表域拆分（`SystemController` 一个文件里同时管这 6 类表）：
 
@@ -1171,12 +1171,12 @@ git commit -m "refactor: OrderController 迁移进 OrderRepo（含子表与列�
 
 > 注意：`sys_role_permission` 的唯一键 `uk_rp(role_id, permission_id)` 未带 `tenant_id`——因为 role_id/permission_id 在共享库中全局唯一，安全；但表仍新增了 `tenant_id` 列用于守卫与审计。
 
-- [ ] **步骤 2：App::log 与 Auth 改走仓储**
+- [x] **步骤 2：App::log 与 Auth 改走仓储**
 
 `App::log()`（`api/src/App.php` 唯一 1 处 `Db::insert('sys_log'...)`）改为 `LogRepo::write(...)`，写入时带 `tenant_id`（平台侧操作走 `ControlDb`，另定）。
 `Auth.php` 的 2 处查询（`user()` 的会话用户、`permissionCodes()`）改用 `UserRepo`/`PermissionRepo`，并带 `tenant_id`。
 
-- [ ] **步骤 3：写测试**
+- [x] **步骤 3：写测试**
 
 `tests/test_repo_sys.php`：
 
@@ -1213,7 +1213,7 @@ t('syncPermissions 只覆盖本租户授权，同 code 角色不撞键', functio
 });
 ```
 
-- [ ] **步骤 4：运行 + Commit**
+- [x] **步骤 4：运行 + Commit**
 
 ```bash
 git add api/src/repos/UserRepo.php api/src/repos/RoleRepo.php api/src/repos/PermissionRepo.php \
@@ -1229,16 +1229,16 @@ git commit -m "refactor: 系统元数据表迁移进仓储（User/Role/Permissio
 - 创建：`api/src/repos/FileRepo.php`
 - 修改：`api/src/controllers/UploadController.php`
 
-- [ ] **步骤 1：实现 FileRepo**
+- [x] **步骤 1：实现 FileRepo**
 
 覆盖 `biz_order_file`（`listByOrder/create/delete`）以及 `UploadController::options()` 里读 `sys_dict/org_company/biz_plan` 的 4 条聚合查询——后者改用 `DictRepo/CompanyRepo/PlanRepo`，不要重复写 SQL。
 
-- [ ] **步骤 2：改写 UploadController + 运行守卫**
+- [x] **步骤 2：改写 UploadController + 运行守卫**
 
 运行：`php tests/guard_no_raw_business_sql.php`
 预期：`guard ok`（此时全部 controller 已迁移完）。
 
-- [ ] **步骤 3：运行全部测试 + Commit**
+- [x] **步骤 3：运行全部测试 + Commit**
 
 运行：`php tests/run.php` → 预期全绿。
 ```bash
@@ -1256,7 +1256,7 @@ git commit -m "refactor: UploadController 迁移进 FileRepo，仓储层收口�
 - 修改：`api/src/controllers/AuthController.php`（`login()`）、`api/src/Auth.php`（`login()/user()/permissionCodes()`）、`login.html`
 - 测试：`tests/test_login.py`→ 用 `tests/test_login.php`
 
-- [ ] **步骤 1：写失败测试（HTTP 级，需服务在跑）**
+- [x] **步骤 1：写失败测试（HTTP 级，需服务在跑）**
 
 `tests/test_login.php`（用 curl 打本机 dev 站点）：
 
@@ -1276,7 +1276,7 @@ t('正确租户代码 + 账号可登录', function () use ($base) {
 });
 ```
 
-- [ ] **步骤 2：改 AuthController::login**
+- [x] **步骤 2：改 AuthController::login**
 
 ```php
     public static function login(): void
@@ -1306,7 +1306,7 @@ t('正确租户代码 + 账号可登录', function () use ($base) {
     }
 ```
 
-- [ ] **步骤 3：改 Auth::login / Auth::user / permissionCodes**
+- [x] **步骤 3：改 Auth::login / Auth::user / permissionCodes**
 
 ```php
     public static function login(array $user, array $tenant): void
@@ -1363,7 +1363,7 @@ t('正确租户代码 + 账号可登录', function () use ($base) {
 
 > 三处 `super` 判定（`Auth.php:127`、`Auth.php:142`、`AuthController.php:83` / 现 `menu()`）统一改成 `'tenant_admin'`。
 
-- [ ] **步骤 4：改 login.html 加「租户代码」输入**
+- [x] **步骤 4：改 login.html 加「租户代码」输入**
 
 在 `login.html` 的账号输入项前插入一项，并让 `submit()` 提交 `tenant`：
 
@@ -1379,12 +1379,12 @@ t('正确租户代码 + 账号可登录', function () use ($base) {
       },
 ```
 
-- [ ] **步骤 5：跑测试 + 手动验证**
+- [x] **步骤 5：跑测试 + 手动验证**
 
 运行：`php tests/run.php`（登录用例需服务在跑）
 浏览器打开 `https://qingguan.sflswall.com.cn/login.html`，用 `demo / admin / admin123` 登录成功。
 
-- [ ] **步骤 6：Commit**
+- [x] **步骤 6：Commit**
 
 ```bash
 git add api/src/controllers/AuthController.php api/src/Auth.php login.html tests/test_login.php
@@ -1397,7 +1397,7 @@ git commit -m "feat: 登录改为租户代码解析，Auth 支持 tenant/platfor
 - 创建：`db/control/../migration_20261015_role_rename.sql`（放 `db/`）
 - 修改：代码里 `super` 字面量的三处（任务 14 已改 `Auth.php` 与 `menu()`）
 
-- [ ] **步骤 1：写数据迁移**
+- [x] **步骤 1：写数据迁移**
 
 `db/migration_20261015_role_rename.sql`：
 
@@ -1406,7 +1406,7 @@ git commit -m "feat: 登录改为租户代码解析，Auth 支持 tenant/platfor
 UPDATE `sys_role` SET `code` = 'tenant_admin', `name` = '租户系统管理员' WHERE `code` = 'super';
 ```
 
-- [ ] **步骤 2：执行并核对**
+- [x] **步骤 2：执行并核对**
 
 ```bash
 mysql -h 127.0.0.1 -u qingguan -p qingguan < db/migration_20261015_role_rename.sql
@@ -1414,7 +1414,7 @@ mysql -h 127.0.0.1 -u qingguan -p qingguan -e "SELECT id,code,name FROM sys_role
 ```
 预期：`tenant_admin / 租户系统管理员`。
 
-- [ ] **步骤 3：写测试**
+- [x] **步骤 3：写测试**
 
 `tests/test_role_rename.php`：
 
@@ -1429,7 +1429,7 @@ t('不存在 code=super 的角色，且租户管理员为 tenant_admin', functio
 });
 ```
 
-- [ ] **步骤 4：运行 + Commit**
+- [x] **步骤 4：运行 + Commit**
 
 ```bash
 git add db/migration_20261015_role_rename.sql tests/test_role_rename.php
@@ -1445,7 +1445,7 @@ git commit -m "feat: 角色 super 改名 tenant_admin（租户系统管理员）
 **文件：**
 - 修改：`docs/superpowers/plans/2026-10-14-multi-tenant-phase1-foundation.md`（勾选完成项）
 
-- [ ] **步骤 1：跑守卫与全部测试**
+- [x] **步骤 1：跑守卫与全部测试**
 
 运行：
 ```bash
@@ -1454,7 +1454,7 @@ php tests/run.php
 ```
 预期：`guard ok`；所有用例 PASS。
 
-- [ ] **步骤 2：手动冒烟（真实浏览器）**
+- [x] **步骤 2：手动冒烟（真实浏览器）**
 
 用 `demo / admin / admin123` 登录，走一遍：首页看板、清关订单列表、抬头管理、报价方案、财务、系统设置（员工/角色/字典/配置/菜单）都不报错。再直接构造一个跨租户 id 调接口（如 `GET /orders/{他租户id}`），应返回「记录不存在」。
 
@@ -1484,9 +1484,39 @@ ssh breeder.sflswall.com.cn 'sudo systemctl reload apache2'
 
 > `rsync` 故意不加 `--delete`，避免误删远程 `uploads/`；本机若无 `rsync`，用 `tar -cz -C /data/qingguan/app . | ssh … tar xz -C /tmp/qg_release` 等价替代。远程 `api/config/config.php` 由部署单独维护，本次需手动补 `control_db` 段。
 
-- [ ] **步骤 4：Commit 计划勾选**
+- [x] **步骤 4：Commit 计划勾选**
 
 ```bash
 git add docs/superpowers/plans/2026-10-14-multi-tenant-phase1-foundation.md
 git commit -m "docs: 一期地基计划执行完成"
 ```
+
+---
+
+## 执行记录（2026-10-14，本机开发环境）
+
+计划在本机（Alibaba Cloud Linux 3）执行完毕，**任务 16 步骤 3（部署到 breeder）尚未执行**，等确认后再动线上。
+
+**本机环境**
+- PHP 8.3.35：`php83`（remi 并行包，经阿里云镜像 `mirrors.aliyun.com/remi/enterprise/8/safe/x86_64/` 安装；官方 `rpms.remirepo.net` 从这台机器只有约 29 KB/s）。系统 `php` 仍是 7.4，**跑测试一律用 `php83`**。
+- 数据库：MariaDB 10.5 @ 127.0.0.1:3306。数据面 `qingguan_dev`、控制面 `qingguan_control_dev`，账号 `qingguan_dev`。`api/config/config.php` 已指向它们（该文件不入库）。
+- 单机开发站点：`php83 -S 127.0.0.1:8080 -t /data/qingguan/app tools/dev-server.php`（`tools/dev-server.php` 为本机新增，把 `/api/*` 交给 `api/index.php`，其余走静态文件）。
+- 跑测试：`cd /data/qingguan/app && php83 tests/run.php`（HTTP 用例需要站点在跑，否则自动跳过）。
+
+**执行中偏离计划的地方**
+1. `api/src/Response.php`：`fail()` 在 `PHP_SAPI === 'cli'` 时改为抛 `RuntimeException` 而不是 `exit`。否则 CLI 下任何失败路径会直接杀掉测试进程（`Tenant::requireId()` 第一次跑就踩到了）。
+2. 守卫脚本 `tests/guard_no_raw_business_sql.php`：把「仓储外直接调 Db::」的检测从 `preg_match`（每文件只报第一处）改成 `preg_match_all`（全量清单，最初 163 处）；测试里用 `PHP_BINARY` 而不是字面量 `php` 调它（本机 `php` 是 7.4，没有 `str_ends_with`）。
+3. `LogRepo` 同时拥有 `sys_log` 与 `biz_order_log`（读 + 写），`OrderController` / `UploadController` 复用它的 `orderLogs()` / `writeOrderLog()`，没有在 `OrderRepo` / `FileRepo` 里重写订单日志 SQL。
+4. 若干列名按真实 schema 修正（计划里已交代过的口径）：`biz_order` 没有 `status`（用 `customs_status`）、`fin_account` 没有 `status`、`fin_recharge` 关联 `company_id` 而非 `account_id`、`biz_plan` 没有 `is_deleted`（仍是物理删除）。
+5. 仓储列表 SQL 把 `tenant_id = ?` 直接写在字符串字面量里（守卫按字符串字面量判断，拼出来的片段会被判违规）。
+6. `FinanceRepo::auditRecharge()` 在事务里补了「已入账就抛异常」，否则重复审核会重复加余额。
+7. 前端 `pages/sys-permission.html` 里 6 处 `'super'` 字面量一并改成 `'tenant_admin'`，显示名改「租户系统管理员」（计划只列了后端三处，不改前端会出现「超管角色可被删除」的界面回归）。
+8. `Auth::isSuper()` 改名 `Auth::isTenantAdmin()`（全仓库无调用点，安全）。
+9. 新增 `db/dev/seed_dev.sql`（本机开发库的初始账号 admin/admin123）与 `tests/test_isolation_http.php`（HTTP 级双租户隔离总测，自建/自删临时租户）。
+10. `tests/test_schema_mt.php` 的断言从「所有用户都属于租户 1」改成「不存在 tenant_id=0 的用户，且 id=1 的 admin 属于租户 1」——前者在开发库里造了第二个租户后就不成立了。
+
+**验证结果（本机）**
+- `php83 tests/guard_no_raw_business_sql.php` → `guard ok`。
+- `php83 tests/run.php` → `29 passed, 0 failed`。
+- HTTP 冒烟（`demo / admin / admin123`）：`/auth/me`、`/menu`、`/orders`、`/orders/stat`、`/orders/export`、`/companies`、`/companies/options`、`/plans`、`/finance/accounts|recharges|payables`、`/staff`、`/roles`、`/permissions`、`/configs`、`/dicts`、`/dict/options`、`/logs`、`/files` 全部 `code:0`；`POST /companies` 写入 → 列表/详情可读 → `DELETE` 软删成功；跨租户取数 `GET /companies/999999` 与 `GET /orders/{他租户id}` 分别返回「记录不存在」「订单不存在」。
+- HTTP 级双租户隔离（`tests/test_isolation_http.php`）：租户 1 与临时租户 2 各自只看到自己的订单，跨租户读日志为空。
