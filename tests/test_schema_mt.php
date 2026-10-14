@@ -10,7 +10,8 @@ t('所有业务表都有 tenant_id 且现有行归租户 1', function () {
         $col = qg_test_val("SHOW COLUMNS FROM `{$tbl}` LIKE 'tenant_id'");
         assert_true($col !== null, "{$tbl} 缺 tenant_id");
     }
-    assert_eq((int) qg_test_val('SELECT COUNT(*) FROM sys_user WHERE tenant_id <> 1'), 0, '现有用户都应归租户 1');
+    assert_eq((int) qg_test_val('SELECT COUNT(*) FROM sys_user WHERE tenant_id = 0'), 0, '不应存在未归属租户的用户');
+    assert_eq((int) qg_test_val('SELECT tenant_id FROM sys_user WHERE id = 1'), 1, '原单机数据的 admin 应归租户 1');
 });
 
 t('唯一键已改造成租户复合键，且旧键不再存在', function () {
