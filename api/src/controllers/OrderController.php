@@ -7,27 +7,11 @@ use QG\Db;
 use QG\Req;
 use QG\Response;
 use QG\Router;
+use QG\repos\LogRepo;
+use QG\repos\OrderRepo;
 
 class OrderController
 {
-    private const LIST_SELECT = '
-        o.*,
-        pl.plan_name, pl.plan_code, pl.intro AS plan_intro,
-        imp.company_name AS importer_name,
-        (SELECT GROUP_CONCAT(c.container_no ORDER BY c.sort SEPARATOR ", ")
-           FROM biz_order_container c WHERE c.order_id = o.id) AS container_nos,
-        (SELECT COUNT(*) FROM biz_order_file f WHERE f.order_id = o.id) AS file_count,
-        (SELECT ad.company FROM biz_order_address ad WHERE ad.order_id = o.id AND ad.addr_type = 1 LIMIT 1) AS shipper_name,
-        (SELECT ad.company FROM biz_order_address ad WHERE ad.order_id = o.id AND ad.addr_type = 2 LIMIT 1) AS consignee_name,
-        (SELECT i.declare_date FROM biz_isf i WHERE i.order_id = o.id ORDER BY i.id DESC LIMIT 1) AS declare_date,
-        u.real_name AS creator_name';
-
-    private const LIST_FROM = '
-        FROM biz_order o
-        LEFT JOIN biz_plan pl  ON pl.id = o.plan_id
-        LEFT JOIN org_company imp ON imp.id = o.importer_id
-        LEFT JOIN sys_user u   ON u.id = o.created_by';
-
     public static function routes(Router $r): void
     {
         $r->get('/orders', [self::class, 'index']);
@@ -61,7 +45,7 @@ class OrderController
                 $where[] = 'o.pickup_flag = 1';
                 break;
             case 'inspect':
-                $where[] = "(o.customs_status = 'inspecting' OR EXISTS (SELECT 1 FROM biz_inspect x WHERE x.order_id = o.id))";
+                $where[] = "(o.customs_status = 'inspecting' OR EXISTS (SELECT 1 FROM biz_inspect x WHERE x.tenant_id = o.tenant_id AND x.order_id = o.id))";
                 break;
             case 'customs':
             default:
@@ -116,7 +100,7 @@ class OrderController
         // 柜号：需要 EXISTS 子查询
         $cn = Req::str('container_no');
         if ($cn !== '') {
-            $where[] = 'EXISTS (SELECT 1 FROM biz_order_container c2 WHERE c2.order_id = o.id AND c2.container_no LIKE ?)';
+            $where[] = 'EXISTS (SELECT 1 FROM biz_order_container c2 WHERE c2.tenant_id = o.tenant_id AND c2.order_id = o.id AND c2.container_no LIKE ?)';
             $bind[]  = "%{$cn}%";
         }
 
@@ -125,7 +109,7 @@ class OrderController
             'release'  => ['o.release_date', false],
             'etd'      => ['o.etd', false],
             'eta'      => ['o.eta', false],
-            'declare'  => ['(SELECT i.declare_date FROM biz_isf i WHERE i.order_id = o.id ORDER BY i.id DESC LIMIT 1)', true],
+            'declare'  => ['(SELECT i.declare_date FROM biz_isf i WHERE i.tenant_id = o.tenant_id AND i.order_id = o.id ORDER BY i.id DESC LIMIT 1)', true],
         ];
         foreach ($ranges as $key => [$col, $withTime]) {
             $from = Req::str($key . '_start');
@@ -143,27 +127,13 @@ class OrderController
         return [$where, $bind];
     }
 
-    private static function orderBy(): string
-    {
-        $allow = ['o.created_at', 'o.etd', 'o.eta', 'o.id', 'o.mbl_no'];
-        $col   = Req::str('sortBy', 'o.id');
-        $col   = in_array($col, $allow, true) ? $col : 'o.id';
-        $dir   = strtolower(Req::str('sortDir', 'desc')) === 'asc' ? 'ASC' : 'DESC';
-        return " ORDER BY {$col} {$dir}, o.id DESC";
-    }
-
     public static function index(): void
     {
         Auth::requireLogin();
         [$where, $bind] = self::buildWhere();
         [$page, $size, $offset] = Req::page();
-        $w = implode(' AND ', $where);
 
-        $total = (int) Db::val('SELECT COUNT(*) ' . self::LIST_FROM . ' WHERE ' . $w, $bind);
-        $rows  = Db::all(
-            'SELECT ' . self::LIST_SELECT . ' ' . self::LIST_FROM . ' WHERE ' . $w . self::orderBy() . " LIMIT {$size} OFFSET {$offset}",
-            $bind
-        );
+        [$rows, $total] = OrderRepo::page($where, $bind, Req::str('sortBy', 'o.id'), Req::str('sortDir', 'desc'), $size, $offset);
         Response::page(self::decorate($rows), $total, $page, $size);
     }
 
@@ -185,7 +155,7 @@ class OrderController
     {
         Auth::requireLogin();
         [$where, $bind] = self::buildWhere();
-        $rows = Db::all('SELECT ' . self::LIST_SELECT . ' ' . self::LIST_FROM . ' WHERE ' . implode(' AND ', $where) . self::orderBy() . ' LIMIT 50000', $bind);
+        $rows = OrderRepo::exportRows($where, $bind, Req::str('sortBy', 'o.id'), Req::str('sortDir', 'desc'));
         $rows = self::decorate($rows);
 
         $cols = [
@@ -221,18 +191,7 @@ class OrderController
     public static function stat(): void
     {
         Auth::requireLogin();
-        Response::ok([
-            'total'      => (int) Db::val('SELECT COUNT(*) FROM biz_order WHERE is_deleted = 0'),
-            'forecast'   => (int) Db::val("SELECT COUNT(*) FROM biz_order WHERE is_deleted = 0 AND customs_status = 'forecast'"),
-            'declaring'  => (int) Db::val("SELECT COUNT(*) FROM biz_order WHERE is_deleted = 0 AND customs_status = 'declaring'"),
-            'inspecting' => (int) Db::val("SELECT COUNT(*) FROM biz_order WHERE is_deleted = 0 AND customs_status = 'inspecting'"),
-            'released'   => (int) Db::val("SELECT COUNT(*) FROM biz_order WHERE is_deleted = 0 AND customs_status = 'released'"),
-            'unverified' => (int) Db::val('SELECT COUNT(*) FROM biz_order WHERE is_deleted = 0 AND is_verified = 0'),
-            'isf'        => (int) Db::val('SELECT COUNT(*) FROM biz_order WHERE is_deleted = 0 AND isf_flag = 1'),
-            'pickup'     => (int) Db::val('SELECT COUNT(*) FROM biz_order WHERE is_deleted = 0 AND pickup_flag = 1'),
-            'shipper'    => (int) Db::val('SELECT COUNT(*) FROM org_company WHERE is_deleted = 0 AND company_type = 1'),
-            'importer'   => (int) Db::val('SELECT COUNT(*) FROM org_company WHERE is_deleted = 0 AND company_type = 2'),
-        ]);
+        Response::ok(OrderRepo::stat());
     }
 
     /* ---------------- 详情 ---------------- */
@@ -241,29 +200,19 @@ class OrderController
     {
         Auth::requireLogin();
         $id  = (int) $p['id'];
-        $row = Db::one('SELECT ' . self::LIST_SELECT . ' ' . self::LIST_FROM . ' WHERE o.id = ? AND o.is_deleted = 0', [$id]);
+        $row = OrderRepo::find($id);
         if (!$row) {
             Response::fail('订单不存在');
         }
         $d = self::decorate([$row])[0];
-        $d['containers'] = Db::all('SELECT * FROM biz_order_container WHERE order_id = ? ORDER BY sort, id', [$id]);
-        $d['hscodes']    = Db::all('SELECT * FROM biz_order_hscode WHERE order_id = ? ORDER BY sort, id', [$id]);
-        $d['addresses']  = Db::all('SELECT * FROM biz_order_address WHERE order_id = ? ORDER BY addr_type', [$id]);
-        $d['files']      = Db::all('SELECT * FROM biz_order_file WHERE order_id = ? ORDER BY id DESC', [$id]);
-        $d['isfs']       = Db::all('SELECT * FROM biz_isf WHERE order_id = ? ORDER BY id DESC', [$id]);
-        $d['inspects']   = Db::all('SELECT * FROM biz_inspect WHERE order_id = ? ORDER BY id DESC', [$id]);
-        $d['logs']       = self::logsOf($id);
+        $d = array_merge($d, OrderRepo::children($id));
+        $d['logs'] = self::logsOf($id);
         Response::ok($d);
     }
 
     private static function logsOf(int $id): array
     {
-        return Db::all(
-            'SELECT l.*, u.real_name AS operator_name FROM biz_order_log l
-               LEFT JOIN sys_user u ON u.id = l.operator_id
-              WHERE l.order_id = ? ORDER BY l.id DESC LIMIT 200',
-            [$id]
-        );
+        return LogRepo::orderLogs($id);
     }
 
     public static function logs(array $p): void
@@ -315,67 +264,7 @@ class OrderController
 
     private static function saveChildren(int $orderId, bool $replace = true): void
     {
-        if ($replace) {
-            foreach (['biz_order_container', 'biz_order_hscode', 'biz_order_address'] as $t) {
-                Db::exec("DELETE FROM {$t} WHERE order_id = ?", [$orderId]);
-            }
-        }
-
-        foreach (Req::arr('containers') as $i => $c) {
-            if (!is_array($c)) {
-                continue;
-            }
-            $row = [
-                'order_id'       => $orderId,
-                'container_no'   => trim((string) ($c['container_no'] ?? '')),
-                'container_type' => trim((string) ($c['container_type'] ?? '')),
-                'gross_weight'   => ($c['gross_weight'] ?? '') === '' ? null : $c['gross_weight'],
-                'packages'       => ($c['packages'] ?? '') === '' ? null : (int) $c['packages'],
-                'cbm'            => ($c['cbm'] ?? '') === '' ? null : $c['cbm'],
-                'sort'           => (int) $i,
-            ];
-            if ($row['container_no'] === '' && $row['container_type'] === '' && $row['gross_weight'] === null) {
-                continue;
-            }
-            Db::insert('biz_order_container', $row);
-        }
-
-        foreach (Req::arr('hscodes') as $i => $h) {
-            if (!is_array($h) || trim((string) ($h['hs_code'] ?? '')) === '') {
-                continue;
-            }
-            Db::insert('biz_order_hscode', [
-                'order_id'       => $orderId,
-                'hs_code'        => trim((string) $h['hs_code']),
-                'origin_country' => trim((string) ($h['origin_country'] ?? '')),
-                'sort'           => (int) $i,
-            ]);
-        }
-
-        foreach (Req::arr('addresses') as $a) {
-            if (!is_array($a)) {
-                continue;
-            }
-            $type = (int) ($a['addr_type'] ?? 0);
-            if ($type < 1 || $type > 3) {
-                continue;
-            }
-            $row = [
-                'order_id'       => $orderId,
-                'addr_type'      => $type,
-                'source_id'      => (int) ($a['source_id'] ?? 0) ?: null,
-                'company'        => trim((string) ($a['company'] ?? '')),
-                'country'        => trim((string) ($a['country'] ?? '')),
-                'state_province' => trim((string) ($a['state_province'] ?? '')),
-                'city'           => trim((string) ($a['city'] ?? '')),
-                'zip_code'       => trim((string) ($a['zip_code'] ?? '')),
-                'address'        => trim((string) ($a['address'] ?? '')),
-                'phone'          => trim((string) ($a['phone'] ?? '')),
-                'remark'         => trim((string) ($a['remark'] ?? '')),
-            ];
-            Db::exec('DELETE FROM biz_order_address WHERE order_id = ? AND addr_type = ?', [$orderId, $type]);
-            Db::insert('biz_order_address', $row);
-        }
+        OrderRepo::saveChildren($orderId, Req::arr('containers'), Req::arr('hscodes'), Req::arr('addresses'), $replace);
     }
 
     /** 各订单功能的「创建新订单」按钮权限（sys_permission.type=2，见 db/upgrade-2026-09-21b.sql）。
@@ -402,25 +291,21 @@ class OrderController
         if ($data['mbl_no'] === '') {
             Response::fail('主提单号/MBL 不能为空');
         }
-        if (Db::val('SELECT id FROM biz_order WHERE mbl_no = ? AND is_deleted = 0', [$data['mbl_no']])) {
+        if (OrderRepo::mblExists($data['mbl_no'])) {
             Response::fail('主提单号已存在');
         }
-        $data['order_no']   = self::genOrderNo();
+        $data['order_no']   = OrderRepo::nextOrderNo();
         $data['created_by'] = Auth::id();
         $data['created_at'] = App::now();
 
         Db::begin();
         try {
-            $id = Db::insert('biz_order', $data);
+            $id = OrderRepo::create($data);
             self::saveChildren($id);
             if (Req::int('isf_flag', 1) === 1) {
-                Db::insert('biz_isf', [
-                    'order_id'     => $id,
-                    'declare_date' => App::now(),
-                    'status'       => 0,
-                ]);
+                OrderRepo::addIsf($id, 0);
             }
-            Db::insert('biz_order_log', [
+            LogRepo::writeOrderLog([
                 'order_id' => $id, 'action' => '创建', 'remark' => '新建订单',
                 'operator_id' => Auth::id(), 'created_at' => App::now(),
             ]);
@@ -437,7 +322,7 @@ class OrderController
     {
         Auth::requireLogin();
         $id  = (int) $p['id'];
-        $old = Db::one('SELECT * FROM biz_order WHERE id = ? AND is_deleted = 0', [$id]);
+        $old = OrderRepo::row($id);
         if (!$old) {
             Response::fail('订单不存在');
         }
@@ -445,14 +330,14 @@ class OrderController
         if ($data['mbl_no'] === '') {
             Response::fail('主提单号/MBL 不能为空');
         }
-        if (Db::val('SELECT id FROM biz_order WHERE mbl_no = ? AND id <> ? AND is_deleted = 0', [$data['mbl_no'], $id])) {
+        if (OrderRepo::mblExists($data['mbl_no'], $id)) {
             Response::fail('主提单号已存在');
         }
         $data['updated_at'] = App::now();
 
         Db::begin();
         try {
-            Db::update('biz_order', $data, 'id = ?', [$id]);
+            OrderRepo::update($id, $data);
             self::saveChildren($id);
             $changed = [];
             foreach ($data as $k => $v) {
@@ -460,7 +345,7 @@ class OrderController
                     $changed[$k] = ['from' => $old[$k], 'to' => $v];
                 }
             }
-            Db::insert('biz_order_log', [
+            LogRepo::writeOrderLog([
                 'order_id' => $id, 'action' => '编辑',
                 'detail'   => null,
                 'remark'   => $changed ? ('变更：' . implode('，', array_keys($changed))) : '提交编辑（明细更新）',
@@ -479,10 +364,10 @@ class OrderController
     {
         Auth::requireLogin();
         $id = (int) $p['id'];
-        if (!Db::val('SELECT id FROM biz_order WHERE id = ? AND is_deleted = 0', [$id])) {
+        if (!OrderRepo::exists($id)) {
             Response::fail('订单不存在');
         }
-        Db::update('biz_order', ['is_deleted' => 1, 'updated_at' => App::now()], 'id = ?', [$id]);
+        OrderRepo::softDelete($id);
         App::log('order', 'delete', $id);
         Response::ok(null, '已删除');
     }
@@ -496,7 +381,7 @@ class OrderController
         if (!in_array($status, $allow, true)) {
             Response::fail('状态值不合法');
         }
-        $old = Db::one('SELECT customs_status FROM biz_order WHERE id = ? AND is_deleted = 0', [$id]);
+        $old = OrderRepo::row($id);
         if (!$old) {
             Response::fail('订单不存在');
         }
@@ -504,8 +389,8 @@ class OrderController
         if ($status === 'released') {
             $upd['release_date'] = Req::date('release_date') ?: date('Y-m-d');
         }
-        Db::update('biz_order', $upd, 'id = ?', [$id]);
-        Db::insert('biz_order_log', [
+        OrderRepo::update($id, $upd);
+        LogRepo::writeOrderLog([
             'order_id' => $id, 'action' => '状态变更', 'field' => 'customs_status',
             'old_value' => $old['customs_status'], 'new_value' => $status,
             'remark' => Req::str('remark') ?: '清关状态变更',
@@ -520,11 +405,11 @@ class OrderController
         Auth::requireLogin();
         $id  = (int) $p['id'];
         $val = Req::int('is_verified', 1) === 1 ? 1 : 0;
-        if (!Db::val('SELECT id FROM biz_order WHERE id = ? AND is_deleted = 0', [$id])) {
+        if (!OrderRepo::exists($id)) {
             Response::fail('订单不存在');
         }
-        Db::update('biz_order', ['is_verified' => $val, 'updated_at' => App::now()], 'id = ?', [$id]);
-        Db::insert('biz_order_log', [
+        OrderRepo::update($id, ['is_verified' => $val, 'updated_at' => App::now()]);
+        LogRepo::writeOrderLog([
             'order_id' => $id, 'action' => '核销', 'field' => 'is_verified',
             'new_value' => $val, 'remark' => $val ? '标记已核销' : '取消核销',
             'operator_id' => Auth::id(), 'created_at' => App::now(),
@@ -536,17 +421,12 @@ class OrderController
     {
         Auth::requireLogin();
         $id = (int) $p['id'];
-        if (!Db::val('SELECT id FROM biz_order WHERE id = ? AND is_deleted = 0', [$id])) {
+        if (!OrderRepo::exists($id)) {
             Response::fail('订单不存在');
         }
         $status = Req::int('status', 1);
-        Db::insert('biz_isf', [
-            'order_id'     => $id,
-            'declare_date' => App::now(),
-            'status'       => $status,
-            'match_msg'    => Req::str('match_msg') ?: ($status === 1 ? 'ISP匹配成功' : ''),
-        ]);
-        Db::update('biz_order', ['match_status' => $status === 1 ? 1 : 0, 'updated_at' => App::now()], 'id = ?', [$id]);
+        OrderRepo::addIsf($id, $status, Req::str('match_msg') ?: ($status === 1 ? 'ISP匹配成功' : ''));
+        OrderRepo::update($id, ['match_status' => $status === 1 ? 1 : 0, 'updated_at' => App::now()]);
         App::log('order', 'isf', $id, $status);
         Response::ok(null, 'ISF 申报记录已登记');
     }
@@ -555,11 +435,10 @@ class OrderController
     {
         Auth::requireLogin();
         $id = (int) $p['id'];
-        if (!Db::val('SELECT id FROM biz_order WHERE id = ? AND is_deleted = 0', [$id])) {
+        if (!OrderRepo::exists($id)) {
             Response::fail('订单不存在');
         }
         $row = [
-            'order_id'     => $id,
             'inspect_type' => Req::str('inspect_type'),
             'inspect_date' => Req::str('inspect_date') ?: App::now(),
             'abnormal'     => Req::str('abnormal'),
@@ -568,14 +447,14 @@ class OrderController
             'remark'       => Req::str('remark'),
             'created_by'   => Auth::id(),
         ];
-        $iid = Db::insert('biz_inspect', $row);
-        Db::update('biz_order', [
+        $iid = OrderRepo::addInspect($id, $row);
+        OrderRepo::update($id, [
             'inspect_type'     => $row['inspect_type'],
             'inspect_abnormal' => $row['abnormal'],
             'customs_status'   => 'inspecting',
             'updated_at'       => App::now(),
-        ], 'id = ?', [$id]);
-        Db::insert('biz_order_log', [
+        ]);
+        LogRepo::writeOrderLog([
             'order_id' => $id, 'action' => '查验', 'remark' => '登记查验记录：' . $row['inspect_type'],
             'operator_id' => Auth::id(), 'created_at' => App::now(),
         ]);
@@ -585,15 +464,7 @@ class OrderController
     public static function delInspect(array $p): void
     {
         Auth::requireLogin();
-        Db::exec('DELETE FROM biz_inspect WHERE id = ? AND order_id = ?', [(int) $p['iid'], (int) $p['id']]);
+        OrderRepo::delInspect((int) $p['iid'], (int) $p['id']);
         Response::ok(null, '已删除');
-    }
-
-    private static function genOrderNo(): string
-    {
-        $prefix = 'QG' . date('Ymd');
-        $last   = Db::val('SELECT order_no FROM biz_order WHERE order_no LIKE ? ORDER BY id DESC LIMIT 1', [$prefix . '%']);
-        $seq    = $last ? ((int) substr($last, -4) + 1) : 1;
-        return $prefix . str_pad((string) $seq, 4, '0', STR_PAD_LEFT);
     }
 }
