@@ -189,3 +189,47 @@ POST /api/auth/login { tenant, username, password }
 - **物理隔离档的运维**：建库/迁移/连接数管理是二期重点，需明确「租户库迁移怎么跑」（逐库执行 migration）。
 - **平台超管是否可读业务数据**：本设计默认「不可」，如需支持再看是否引入带审计的代维通道。
 - **现有 `部署说明.md`** 是厂商的宝塔版说明，与本机 Apache 部署不一致；本仓库部署事实以运行环境为准（另行整理）。
+
+## 14. 平台字典（与菜单）的统一增改
+
+**问题**：第 6 节决定「7 张 `sys_*` 随租户走」，于是每个租户各有一份 `sys_dict`（还有一份 `sys_permission` 菜单树）。平台想统一新增一个字典项（例如贸易方式多一种）、或调整一个菜单的路径，就要改 N 个库——这就是多租户化换来的新运维负担，必须事先设计，不能靠手工。
+
+**模型**：
+
+- 控制面新增 `saas_dict_template`（平台字典模板）：列与 `sys_dict` 相同，去掉 `tenant_id`，加 `version INT`、`status TINYINT`。
+- 租户 `sys_dict` 加两列：`source ENUM('platform','tenant') NOT NULL DEFAULT 'platform'`、`template_version INT NOT NULL DEFAULT 0`。存量行回填 `source='platform'`。
+- 菜单同理，第二期做：`saas_menu_template` ↔ `sys_permission`，加同一对列。
+
+**发布（平台 → 全部租户）**：
+
+1. 平台改模板 → 该 `saas_dict_template` 的 `version` +1。
+2. 点「发布」前先出**差异预览**：新增 N 项 / 改动 M 项 / 停用 K 项 / 冲突 C 项，要二次确认。
+3. 按 控制面 → 共享库 → 各专用库 的顺序，逐库 upsert，**只动 `source='platform'` 的行**：
+   - 模板里有、租户没有 → 插入（`source='platform'`，带上当前 `template_version`）；
+   - 两边都有且都是 `platform` → 覆盖成模板值；
+   - **两边都有、但租户那行是 `source='tenant'`（租户自己加的）→ 判为冲突，跳过并列出来**，由人工决定谁赢，不静默覆盖；
+   - 模板里删掉的项 → 不物理删，改 `status=0`（停用）后同步下来，避免租户历史数据引用到不存在的字典项。
+4. 每库发布完写一行结果（成功/失败/冲突数），失败的库单独可重试（发布也要幂等）。
+
+**租户自建**：租户自己加的字典项 `source='tenant'`，平台发布永远不碰；租户改不了平台项（界面置灰），只能停用（本地 `status=0`）。
+
+**与迁移的关系**：第 15 节的「多库执行器」和这里「多库发布器」是同一件事的两种载荷——都是「控制面定义 → 逐个数据面库幂等执行」。两者共用一个执行器（`scripts/fanout.php`）：它负责「列出所有数据面库 → 按序执行 → 逐库记录结果 → 失败即停并报告」，具体 SQL 由字典发布或 schema 迁移提供。
+
+## 15. 多库统一的表结构升级
+
+**问题**：物理隔离档（二期）会带来 N 个结构完全相同的库。以后任何一次加字段/改索引，都要在 共享库 + N 个专用库上一致地跑完，不能漏、不能重复、不能跑一半。
+
+**约定**：
+
+- 迁移脚本集中到 `db/migrations/`，文件名 `NNNN_描述.sql`（四位序号 + 说明），**每个文件必须幂等**（先查 `information_schema`，已存在则跳过）——这一点一期已经这么做了，沿用 `migration_20261015_multitenant.sql` 的 `PREPARE` + `IF` 写法。
+- 每个数据面库（含共享库）与控制面库各有一张 `schema_version(version INT PRIMARY KEY, note VARCHAR(200), applied_at DATETIME)`。
+- `scripts/migrate.php`：
+  - 目标顺序固定：**控制面库 → 共享库 → 各专用库**（专用库按 `db_name` 排序，保证每次顺序一致）；
+  - 对每个目标：读 `schema_version` 的最大 `version`，按序号执行所有更大的迁移文件，**每个文件执行成功后立刻写入版本行**（MySQL 的 DDL 是隐式提交，事务包不住 DDL，所以靠「文件幂等 + 成功才记账」来保证可断点续跑）；
+  - 任一库失败**立即停止**并打印「哪个库、哪个文件、什么错误」，已成功的库保持已升级状态（它们本来就是幂等的），修完重跑即可；
+  - 支持 `--dry-run`（只列出「哪个库还差哪几个文件」）、`--only=<db_name>`、`--to=<NNNN>`；
+  - 执行前自动 `mysqldump` 备份到 `db/backup/<库名>_<时间>.sql.gz`。
+- **建新库 = 按 migrations 从头跑一遍**。所以 `db/schema.sql` 的历史定位要改口：它是「单租户单机版基线」，只作参考资料，新库一律由 migrations 建；否则同一个结构会有两份真相，早晚不一致。
+- **发布流程固化成三步**：备份 → 迁移（在切代码**之前**跑，因为新代码依赖新结构）→ 切代码/重启 → 验证。回滚只有代码层是可靠的（`git revert` + 重启）；数据库回滚靠执行前的备份，迁移脚本不写 down（写了也没人敢在生产上跑）。
+- **门禁**：`tests/run.php` 里加一条断言——开发库的 `schema_version` 等于 `db/migrations/` 的最大序号；`scripts/migrate.php --dry-run` 必须报「无待执行」。上线前这两条不过就不发。
+- 一期的两份迁移（`migration_20261015_multitenant.sql`、`migration_20261015_role_rename.sql`）在「运维基础设施」这一步归一到 `db/migrations/0001_*.sql` / `0002_*.sql`，并给已经跑过它们的库（本机 dev、生产）回填版本行。
