@@ -1,31 +1,18 @@
 <?php
 require_once __DIR__ . '/bootstrap.php';
+require_once __DIR__ . '/http.php';
 
 /**
  * 租户隔离的 HTTP 级总测：造第二个租户的账号与订单，用真实会话打真实接口，
  * 验证「A 租户看不到、也取不到 B 租户的数据」。
  * 需要站点在跑（见 tools/dev-server.php），否则整条跳过。
  */
-$GLOBALS['qg_base'] = getenv('QG_BASE') ?: 'http://127.0.0.1:8080';
-
-function qg_http_req(string $path, array $opt = []): string
-{
-    $ch = curl_init($GLOBALS['qg_base'] . $path);
-    curl_setopt_array($ch, $opt + [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10]);
-    $body = curl_exec($ch);
-    curl_close($ch);
-    return $body === false ? '' : (string) $body;
-}
 
 function qg_login(string $tenant, string $username, string $password): ?string
 {
     $jar = tempnam(sys_get_temp_dir(), 'qgck');
-    $r = qg_http_req('/api/auth/login', [
-        CURLOPT_POST       => true,
-        CURLOPT_POSTFIELDS => json_encode(['tenant' => $tenant, 'username' => $username, 'password' => $password]),
-        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-        CURLOPT_COOKIEJAR  => $jar,
-    ]);
+    $r = qg_post_json('/api/auth/login', ['tenant' => $tenant, 'username' => $username, 'password' => $password],
+        ['-c', $jar]);
     if (strpos($r, '"code":0') === false) {
         @unlink($jar);
         return null;
@@ -75,7 +62,7 @@ function qg_make_order(int $tid, string $no): int
 }
 
 t('HTTP 级：两个租户互不可见、跨租户取数被拒', function () {
-    if (qg_http_req('/api/auth/me') === '') {
+    if (!qg_site_up()) {
         echo "      站点未启动，跳过（先跑 tools/dev-server.php）\n";
         return;
     }
@@ -90,18 +77,18 @@ t('HTTP 级：两个租户互不可见、跨租户取数被拒', function () {
     assert_true($jar2 !== null, '租户 2 登录失败');
 
     try {
-        $list1 = qg_http_req('/api/orders?pageSize=100', [CURLOPT_COOKIEFILE => $jar1]);
-        $list2 = qg_http_req('/api/orders?pageSize=100', [CURLOPT_COOKIEFILE => $jar2]);
+        $list1 = qg_curl('/api/orders?pageSize=100', ['-b', $jar1]);
+        $list2 = qg_curl('/api/orders?pageSize=100', ['-b', $jar2]);
 
         assert_contains($list1, 'ISO-HTTP-1', '租户 1 应看到自己的订单');
         assert_true(strpos($list1, 'ISO-HTTP-2') === false, '租户 1 不应看到租户 2 的订单');
         assert_contains($list2, 'ISO-HTTP-2', '租户 2 应看到自己的订单');
         assert_true(strpos($list2, 'ISO-HTTP-1') === false, '租户 2 不应看到租户 1 的订单');
 
-        $cross = qg_http_req('/api/orders/' . $o2, [CURLOPT_COOKIEFILE => $jar1]);
+        $cross = qg_curl('/api/orders/' . $o2, ['-b', $jar1]);
         assert_contains($cross, '订单不存在', '租户 1 拿租户 2 的订单 id 应取不到：' . $cross);
 
-        $crossLogs = qg_http_req('/api/orders/' . $o1 . '/logs', [CURLOPT_COOKIEFILE => $jar2]);
+        $crossLogs = qg_curl('/api/orders/' . $o1 . '/logs', ['-b', $jar2]);
         assert_eq(trim($crossLogs), '{"code":0,"msg":"ok","data":[]}', '租户 2 读租户 1 的订单日志应为空');
     } finally {
         foreach ([$jar1, $jar2] as $jar) { if ($jar) { @unlink($jar); } }
