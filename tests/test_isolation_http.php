@@ -57,7 +57,7 @@ function qg_make_order(int $tid, string $no): int
     $id = QG\Db::val('SELECT id FROM biz_order WHERE tenant_id = ? AND order_no = ?', [$tid, $no]);
     if ($id) { return (int) $id; }
     return QG\Db::insert('biz_order', [
-        'tenant_id' => $tid, 'order_no' => $no, 'customer_no' => 'ISO', 'created_at' => date('Y-m-d H:i:s'),
+        'tenant_id' => $tid, 'order_no' => $no, 'mbl_no' => 'MBL-' . $no, 'customer_no' => 'ISO', 'created_at' => date('Y-m-d H:i:s'),
     ]);
 }
 

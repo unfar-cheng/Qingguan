@@ -42,7 +42,7 @@ t('FileRepo 附件只在本租户可见、不可删', function () {
 
 t('FileRepo::orderExists 只认本租户订单', function () {
     $orderNo = 'QG-T13-' . bin2hex(random_bytes(4));
-    qg_test_pdo()->exec("INSERT INTO biz_order (tenant_id, order_no, is_deleted) VALUES (1, '{$orderNo}', 0)");
+    qg_test_pdo()->exec("INSERT INTO biz_order (tenant_id, order_no, mbl_no, is_deleted) VALUES (1, '{$orderNo}', 'MBL-{$orderNo}', 0)");
     $orderId = (int) qg_test_pdo()->lastInsertId();
     try {
         qg_t13_ctx(1);

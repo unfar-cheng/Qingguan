@@ -9,9 +9,9 @@ t('订单列表严格按租户隔离', function () {
 
     // biz_order 无 status 列，清关状态列名是 customs_status（见 db/schema.sql）
     QG\Tenant::set(['id' => $t1, 'mode' => 'shared', 'db_name' => '']);
-    QG\Db::insert('biz_order', ['tenant_id' => $t1, 'order_no' => 'ISO-A', 'is_deleted' => 0, 'customs_status' => 'forecast']);
+    QG\Db::insert('biz_order', ['tenant_id' => $t1, 'order_no' => 'ISO-A', 'mbl_no' => 'MBL-A', 'is_deleted' => 0, 'customs_status' => 'forecast']);
     QG\Tenant::set(['id' => $t2, 'mode' => 'shared', 'db_name' => '']);
-    QG\Db::insert('biz_order', ['tenant_id' => $t2, 'order_no' => 'ISO-B', 'is_deleted' => 0, 'customs_status' => 'forecast']);
+    QG\Db::insert('biz_order', ['tenant_id' => $t2, 'order_no' => 'ISO-B', 'mbl_no' => 'MBL-B', 'is_deleted' => 0, 'customs_status' => 'forecast']);
 
     QG\Tenant::set(['id' => $t1, 'mode' => 'shared', 'db_name' => '']);
     $a = QG\Db::all("SELECT order_no FROM biz_order WHERE tenant_id = ? AND order_no LIKE 'ISO-%'", [$t1]);
