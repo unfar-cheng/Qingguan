@@ -2,10 +2,10 @@
 namespace QG\controllers;
 
 use QG\App;
-use QG\Db;
 use QG\Req;
 use QG\Response;
 use QG\Router;
+use QG\repos\CompanyRepo;
 
 class OrgController
 {
@@ -30,27 +30,11 @@ class OrgController
         $status  = Req::str('status');
         [$page, $size, $offset] = Req::page();
 
-        $where = ['is_deleted = 0', 'company_type = ?'];
-        $bind  = [$type];
-        if ($keyword !== '') {
-            $where[] = '(company_name LIKE ? OR city LIKE ? OR address LIKE ?)';
-            array_push($bind, "%{$keyword}%", "%{$keyword}%", "%{$keyword}%");
-        }
-        if ($status !== '') {
-            $where[] = 'status = ?';
-            $bind[]  = (int) $status;
-        }
-        $w = implode(' AND ', $where);
-
-        $total = (int) Db::val("SELECT COUNT(*) FROM org_company WHERE {$w}", $bind);
-        $rows  = Db::all(
-            "SELECT * FROM org_company WHERE {$w} ORDER BY id DESC LIMIT {$size} OFFSET {$offset}",
-            $bind
-        );
+        [$rows, $total] = CompanyRepo::page($type, $keyword, $status, $size, $offset);
 
         if ($type === 2) {
             foreach ($rows as &$row) {
-                $row['stats'] = self::statOf((int) $row['id']);
+                $row['stats'] = CompanyRepo::orderStats((int) $row['id']);
             }
             unset($row);
         }
@@ -61,20 +45,12 @@ class OrgController
     {
         $type = Req::int('type', 1);
         $kw   = Req::str('keyword');
-        $bind = [$type];
-        $sql  = 'SELECT id, company_name, country, state_province, city, zip_code, address, phone, contact, bond_no
-                   FROM org_company WHERE is_deleted = 0 AND status = 1 AND company_type = ?';
-        if ($kw !== '') {
-            $sql .= ' AND company_name LIKE ?';
-            $bind[] = "%{$kw}%";
-        }
-        $sql .= ' ORDER BY company_name LIMIT 200';
-        Response::ok(Db::all($sql, $bind));
+        Response::ok(CompanyRepo::options($type, $kw));
     }
 
     public static function show(array $p): void
     {
-        $row = Db::one('SELECT * FROM org_company WHERE id = ? AND is_deleted = 0', [(int) $p['id']]);
+        $row = CompanyRepo::find((int) $p['id']);
         $row ? Response::ok($row) : Response::fail('记录不存在');
     }
 
@@ -105,7 +81,7 @@ class OrgController
             Response::fail('公司名称不能为空');
         }
         $data['created_by'] = \QG\Auth::id();
-        $id = Db::insert('org_company', $data);
+        $id = CompanyRepo::create($data);
         App::log('company', 'create', $id, $data);
         Response::ok(['id' => $id], '已新增');
     }
@@ -113,26 +89,26 @@ class OrgController
     public static function update(array $p): void
     {
         $id = (int) $p['id'];
-        if (!Db::val('SELECT id FROM org_company WHERE id = ? AND is_deleted = 0', [$id])) {
+        if (!CompanyRepo::exists($id)) {
             Response::fail('记录不存在');
         }
         $data = self::payload();
         if ($data['company_name'] === '') {
             Response::fail('公司名称不能为空');
         }
-        Db::update('org_company', $data, 'id = ?', [$id]);
+        CompanyRepo::update($id, $data);
         App::log('company', 'update', $id, $data);
         Response::ok(null, '已保存');
     }
 
     public static function destroy(array $p): void
     {
-        $id = (int) $p['id'];
-        $used = Db::val('SELECT COUNT(*) FROM biz_order WHERE importer_id = ? AND is_deleted = 0', [$id]);
+        $id   = (int) $p['id'];
+        $used = CompanyRepo::orderCount($id);
         if ($used) {
             Response::fail('该公司已被 ' . $used . ' 个订单引用，不能删除，可改为停用');
         }
-        Db::update('org_company', ['is_deleted' => 1], 'id = ?', [$id]);
+        CompanyRepo::softDelete($id);
         App::log('company', 'delete', $id);
         Response::ok(null, '已删除');
     }
@@ -147,30 +123,6 @@ class OrgController
      */
     public static function stats(array $p): void
     {
-        Response::ok(self::statOf((int) $p['id']));
-    }
-
-    private static function statOf(int $id): array
-    {
-        $row = Db::one(
-            "SELECT
-                SUM(customs_status = 'released')   AS released,
-                SUM(customs_status = 'forecast')   AS forecast,
-                SUM(customs_status = 'inspecting') AS inspecting
-             FROM biz_order WHERE importer_id = ? AND is_deleted = 0",
-            [$id]
-        ) ?: [];
-        $inspected = (int) Db::val(
-            'SELECT COUNT(DISTINCT o.id) FROM biz_order o
-               JOIN biz_inspect i ON i.order_id = o.id
-              WHERE o.importer_id = ? AND o.is_deleted = 0',
-            [$id]
-        );
-        return [
-            'released'   => (int) ($row['released'] ?? 0),
-            'inspected'  => $inspected,
-            'forecast'   => (int) ($row['forecast'] ?? 0),
-            'inspecting' => (int) ($row['inspecting'] ?? 0),
-        ];
+        Response::ok(CompanyRepo::orderStats((int) $p['id']));
     }
 }
