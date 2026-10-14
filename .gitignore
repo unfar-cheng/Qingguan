@@ -1,6 +1,13 @@
 # 本地配置：含数据库口令与令牌签名密钥，禁止入库
 /api/config/config.php
 
+# 本机部署口令等环境变量，禁止入库
+.env
+.env.*
+
+# 迁移前的数据库备份
+/db/backup/
+
 # 运行时与上传目录（内容不入库，仅保留目录本身）
 /api/runtime/*
 !/api/runtime/.gitkeep
