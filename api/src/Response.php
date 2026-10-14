@@ -25,6 +25,10 @@ class Response
 
     public static function fail(string $msg, int $code = 1, int $http = 200): void
     {
+        // CLI（测试）环境没有 HTTP 响应可输出，改为抛异常，便于断言失败路径。
+        if (PHP_SAPI === 'cli') {
+            throw new \RuntimeException('接口失败：' . $msg . '（code=' . $code . '）');
+        }
         self::json(['code' => $code, 'msg' => $msg, 'data' => null], $http);
     }
 
