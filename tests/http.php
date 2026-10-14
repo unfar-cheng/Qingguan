@@ -4,7 +4,9 @@
 
 function qg_base(): string
 {
-    return getenv('QG_BASE') ?: 'http://127.0.0.1:8080';
+    // 默认打本机开发站点（https://qingguan-dev.sflswall.com.cn）。
+    // 若要用临时站点（tools/dev-server.php 起的 php -S），设 QG_BASE 覆盖。
+    return getenv('QG_BASE') ?: 'https://qingguan-dev.sflswall.com.cn';
 }
 
 /** 打一个接口，$args 是额外透传给 curl 的参数（如 Cookie 文件） */
@@ -25,5 +27,5 @@ function qg_post_json(string $path, array $body, array $args = []): string
 
 function qg_site_up(): bool
 {
-    return qg_curl('/api/auth/me') !== '';
+    return strpos(qg_curl('/api/auth/me'), '"code"') !== false;
 }

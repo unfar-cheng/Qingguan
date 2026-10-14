@@ -63,7 +63,7 @@ function qg_make_order(int $tid, string $no): int
 
 t('HTTP 级：两个租户互不可见、跨租户取数被拒', function () {
     if (!qg_site_up()) {
-        echo "      站点未启动，跳过（先跑 tools/dev-server.php）\n";
+        echo "      站点未启动，跳过（见 ops/apache/ 里的 vhost）\n";
         return;
     }
 

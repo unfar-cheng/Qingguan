@@ -3,7 +3,7 @@ require_once __DIR__ . '/lib.php';
 require_once __DIR__ . '/http.php';
 
 t('缺租户代码时登录被拒', function () {
-    if (!qg_site_up()) { echo "      站点未启动，跳过（先跑 tools/dev-server.php）\n"; return; }
+    if (!qg_site_up()) { echo "      站点未启动，跳过（见 ops/apache/ 里的 vhost）\n"; return; }
     $r = qg_post_json('/api/auth/login', ['username' => 'admin', 'password' => 'admin123']);
     assert_contains($r, '租户代码');
 });

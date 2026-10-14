@@ -21,3 +21,6 @@ Thumbs.db
 *.tmp
 .idea/
 .vscode/
+
+# 本机开发站点：certbot 的 HTTP-01 验证目录（内容由 certbot 临时写入）
+/.well-known/
