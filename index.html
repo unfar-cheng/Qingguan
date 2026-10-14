@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>清关管理系统</title>
+<link rel="icon" href="/favicon.ico">
+<link rel="stylesheet" href="/assets/vendor/element-plus.css">
+<link rel="stylesheet" href="/assets/css/app.css">
+<style>
+  .frame-wrap{position:absolute;inset:0}
+  .frame-wrap iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+  .mask{position:absolute;inset:0;background:var(--qg-page);display:flex;align-items:center;justify-content:center;color:#a9b1ba}
+</style>
+</head>
+<body>
+<div id="app" v-cloak>
+  <div class="layout">
+
+    <!-- 左侧导航 -->
+    <aside class="sidebar" :class="{collapsed:collapse}">
+      <div class="brand">
+        <div class="dot">清</div>
+        <div class="txt">清关管理系统</div>
+      </div>
+      <div class="menu-scroll">
+        <el-menu :default-active="active" :collapse="collapse" :collapse-transition="false" unique-opened @select="onSelect">
+          <template v-for="m in menus" :key="m.id">
+            <el-sub-menu v-if="m.children && m.children.length" :index="'g'+m.id">
+              <template #title>
+                <el-icon><component :is="m.icon || 'Menu'"></component></el-icon>
+                <span>{{ m.name }}</span>
+              </template>
+              <el-menu-item v-for="c in m.children" :key="c.id" :index="c.path">
+                <el-icon><component :is="c.icon || 'Document'"></component></el-icon>
+                <span>{{ c.name }}</span>
+              </el-menu-item>
+            </el-sub-menu>
+            <el-menu-item v-else :index="m.path">
+              <el-icon><component :is="m.icon || 'Menu'"></component></el-icon>
+              <span>{{ m.name }}</span>
+            </el-menu-item>
+          </template>
+        </el-menu>
+      </div>
+    </aside>
+
+    <!-- 右侧主区 -->
+    <div class="main">
+      <div class="topbar">
+        <div class="hamb" @click="collapse = !collapse">
+          <el-icon><component :is="collapse ? 'Expand' : 'Fold'"></component></el-icon>
+        </div>
+        <div class="crumb">
+          <template v-for="(b, i) in crumbs" :key="i">
+            <span v-if="i"> / </span><b v-if="i === crumbs.length - 1">{{ b }}</b><span v-else>{{ b }}</span>
+          </template>
+        </div>
+        <div class="spacer"></div>
+        <el-dropdown @command="onUserCmd">
+          <div class="user">
+            <div class="avatar">{{ (user.real_name || user.username || '?').slice(0, 1) }}</div>
+            <span>{{ user.real_name || user.username }}</span>
+            <span class="muted" style="font-size:12px">{{ user.role_name || '' }}</span>
+            <el-icon><ArrowDown /></el-icon>
+          </div>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="pwd">修改密码</el-dropdown-item>
+              <el-dropdown-item command="out" divided>退出登录</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </div>
+
+      <div class="tabsbar">
+        <div v-for="t in tabs" :key="t.path" class="tabchip" :class="{active: t.path === active}" @click="active = t.path">
+          <span class="bullet"></span>
+          <span>{{ t.title }}</span>
+          <el-icon class="x" @click.stop="closeTab(t)"><Close /></el-icon>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="empty-tip" v-if="!tabs.length">请从左侧菜单打开页面</div>
+        <div class="frame-wrap" v-for="t in tabs" :key="t.path" v-show="t.path === active">
+          <iframe :src="frameSrc(t)" @load="onFrameLoad(t)"></iframe>
+          <div class="mask" v-if="!t.loaded">
+            <el-icon class="is-loading" style="font-size:22px"><Loading /></el-icon>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 修改密码 -->
+  <el-dialog v-model="pwdVisible" title="修改密码" width="420px">
+    <el-form label-width="90px">
+      <el-form-item label="原密码"><el-input v-model="pwdForm.old_password" type="password" show-password></el-input></el-form-item>
+      <el-form-item label="新密码"><el-input v-model="pwdForm.new_password" type="password" show-password placeholder="至少 6 位"></el-input></el-form-item>
+      <el-form-item label="确认新密码"><el-input v-model="pwdForm.confirm" type="password" show-password></el-input></el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="pwdVisible = false">取消</el-button>
+      <el-button type="primary" :loading="saving" @click="savePwd">确定</el-button>
+    </template>
+  </el-dialog>
+</div>
+
+<script src="/assets/vendor/vue.global.prod.js"></script>
+<script src="/assets/vendor/element-plus.full.min.js"></script>
+<script src="/assets/vendor/icons.iife.min.js"></script>
+<script src="/assets/js/common.js"></script>
+<script>
+QG.mount(function () {
+  return {
+    data: function () {
+      return {
+        collapse: false,
+        menus: [], tabs: [], active: '', user: {},
+        /* 服务器当前版号（站点根 version.json 的 build）。iframe 地址统一带 ?_v=<版号>，
+           版号一变 → 地址变 → 浏览器必然重新取页面，不依赖 F5/Ctrl+F5 的刷新语义。
+           拿不到 version.json 时保持空串，iframe 就用原始地址，行为和以前完全一样。 */
+        build: '',
+        updateReady: null,      /* 检测到但还没刷新的新版号（用来避免重复提示） */
+        updateInfo: null,       /* 新版号的完整信息（含构建时间），刷新后同步给水印用 */
+        pwdVisible: false, saving: false,
+        pwdForm: { old_password: '', new_password: '', confirm: '' },
+        titleMap: {}
+      };
+    },
+    computed: {
+      crumbs: function () {
+        var t = this.tabs.filter(function (x) { return x.path === this.active; }.bind(this))[0];
+        if (!t) return ['首页'];
+        return t.group ? [t.group, t.title] : [t.title];
+      }
+    },
+    watch: {
+      /* 切到某个标签时，让该页重新拉一次公共下拉（方案 / 抬头 / 字典），保证看到的是最新数据；
+         顺手问一次版号 —— 「文件更新后切回旧标签」这种情况，页面本身不会重新加载，
+         只能靠外壳在这里发现。 */
+      active: function (p) {
+        var self = this;
+        this.$nextTick(function () { self.pingFrame(p); self.checkBuild(); });
+      }
+    },
+    mounted: function () {
+      /* 子页面把 qg:* 消息发给外壳，这里中继给其它 iframe（同源）。
+         例：系统设置保存了报价方案 → 创建订单页的旧缓存立刻作废。
+         例外：qg:menu-refresh 是给外壳自己的（权限管理页改了菜单节点），不中继。 */
+      var self = this;
+      window.addEventListener('message', function (e) {
+        var d = e && e.data;
+        if (!d || typeof d !== 'object' || typeof d.type !== 'string' || d.type.indexOf('qg:') !== 0) return;
+        if (d.type === 'qg:menu-refresh') { self.loadMenu(false); return; }
+        self.pingAll(d, e.source);
+      });
+    },
+    created: function () {
+      var self = this;
+      QG.get('/auth/me').then(function (u) { self.user = u; }).catch(function () { location.href = '/login.html'; });
+      /* 先取版号再开首页：这样第一个标签的地址就带 ?_v=，不会撞上浏览器里缓存的旧副本。
+         拿不到版号（服务器还没放 version.json）也照常打开，不能让新机制挡住正常使用。 */
+      QG.fetchBuild().then(function (v) {
+        if (v && v.build) self.build = v.build;
+        self.loadMenu(true);
+        self.startBuildWatch();
+      });
+    },
+    methods: {
+      /* iframe 的地址：带上版号参数，确保「文件更新后」浏览器不会拿旧副本。
+         版号为空时返回原始路径 —— 没有 version.json 的环境行为与以前完全一致。 */
+      frameSrc: function (t) {
+        if (!this.build) return t.path;
+        return t.path + (t.path.indexOf('?') >= 0 ? '&' : '?') + '_v=' + encodeURIComponent(this.build);
+      },
+      /* ---------- 版本监视：每 3 分钟回源问一次，变了就提示刷新 ---------- */
+      startBuildWatch: function () {
+        var self = this;
+        if (self._watchTimer) return;
+        self._watchTimer = setInterval(function () { self.checkBuild(); }, 180000);
+      },
+      checkBuild: function () {
+        var self = this;
+        if (self._checking) return Promise.resolve(null);
+        /* 切标签会很频繁，20 秒内不重复问 */
+        if (self._lastCheck && Date.now() - self._lastCheck < 20000) return Promise.resolve(null);
+        self._checking = true;
+        self._lastCheck = Date.now();
+        return QG.fetchBuild().then(function (v) {
+          self._checking = false;
+          if (!v || !v.build) return null;
+          if (!self.build) { self.build = v.build; return null; }   /* 首次拿到：静默采用，不打扰 */
+          if (v.build !== self.build) self.notifyUpdate(v);
+          return v;
+        }).catch(function () { self._checking = false; return null; });
+      },
+      /* 提示有新版本。故意「只提示、不自动刷新」——
+         自动刷新会把用户正在填的表单冲掉，刷新时机交给用户点。 */
+      notifyUpdate: function (v) {
+        var self = this;
+        if (self.updateReady) return;
+        self.updateReady = v.build;
+        self.updateInfo = v;
+        ElementPlus.ElNotification({
+          title: '系统已更新',
+          message: '检测到新版本 ' + v.build + (v.time ? '（' + v.time + ' 构建）' : '')
+            + '，点这条提示刷新全部标签页；也可以稍后从右上角自己刷新。',
+          type: 'warning',
+          duration: 0,
+          position: 'bottom-right',
+          onClick: function () { self.applyUpdate(); }
+        });
+      },
+      /* 把所有标签重新指向新版号（地址变了 → 浏览器必然重新取页面）。
+         当前标签若有弹窗/抽屉开着（可能正在编辑），先确认再刷。 */
+      applyUpdate: function () {
+        var self = this;
+        var run = function () {
+          self.build = self.updateReady || self.build;
+          self.updateReady = null;
+          self.tabs.forEach(function (t) { t.loaded = false; });
+          /* 外壳自己不会跟着标签一起重载，水印必须手动同步，
+             否则右下角一直挂着旧号，用户反而以为「还是没更新」。 */
+          QG.paintStamp({ build: self.build, time: self.updateInfo && self.updateInfo.time });
+          self.updateInfo = null;
+          QG.toast('已刷新到最新版本 ' + self.build);
+        };
+        if (!self.frameBusy()) return run();
+        QG.confirm('当前页面有正在编辑的内容，刷新会丢失。确定刷新吗？', '系统已更新')
+          .then(run).catch(function () {});
+      },
+      /* 当前可见标签里有没有弹窗 / 抽屉打开着（= 可能正在编辑） */
+      frameBusy: function () {
+        var f = this.active ? this.frameOf(this.active) : null;
+        try {
+          var d = f && f.contentDocument;
+          if (!d) return false;
+          var box = d.querySelector('.el-dialog, .el-drawer, .el-message-box');
+          if (!box) return false;
+          var r = box.getBoundingClientRect();
+          return r.width > 0 && r.height > 0;
+        } catch (e) { return false; }
+      },
+      /* 拉一次菜单并重建 titleMap。
+         first=true（首次进入）：顺带打开首页。
+         first=false（菜单被改动后重载）：保持当前标签，只清掉已经不在菜单里的标签。 */
+      loadMenu: function (first) {
+        var self = this;
+        return QG.get('/menu').then(function (list) {
+          self.menus = list || [];
+          self.titleMap = {};
+          (self.menus || []).forEach(function (m) {
+            self.titleMap[m.path] = { title: m.name, group: '' };
+            (m.children || []).forEach(function (c) { self.titleMap[c.path] = { title: c.name, group: m.name }; });
+          });
+          if (first) {
+            var home = self.titleMap['/pages/home.html'] ? '/pages/home.html' : (self.menus[0] && (self.menus[0].path || (self.menus[0].children[0] || {}).path));
+            if (home) self.open(home);
+            return;
+          }
+          var valid = Object.keys(self.titleMap);
+          self.tabs = self.tabs.filter(function (t) { return valid.indexOf(t.path) >= 0; });
+          if (self.active && valid.indexOf(self.active) < 0) {
+            self.active = self.tabs.length ? self.tabs[0].path : '';
+          }
+          QG.toast('菜单已更新');
+        }).catch(function (e) { QG.err(e); });
+      },
+      open: function (path) {
+        if (!path) return;
+        var info = this.titleMap[path] || { title: path, group: '' };
+        var hit = this.tabs.filter(function (t) { return t.path === path; })[0];
+        if (!hit) this.tabs.push({ path: path, title: info.title, group: info.group, loaded: false });
+        this.active = path;
+      },
+      onSelect: function (path) { this.open(path); },
+      onFrameLoad: function (t) {
+        var self = this;
+        setTimeout(function () { t.loaded = true; }, 60);
+        try {
+          t.title = this.titleMap[t.path] ? this.titleMap[t.path].title : t.title;
+        } catch (e) {}
+      },
+      /* 取到指定路径的 iframe 元素。
+         ⚠️ iframe 的 src 现在会带 ?_v=<版号>，所以不能只跟原始路径比 ——
+         否则「切标签时 ping 一下让页面重取下拉」会静默失效。 */
+      frameOf: function (p) {
+        var tab = this.tabs.filter(function (t) { return t.path === p; })[0];
+        var want = tab ? this.frameSrc(tab) : null;
+        var hit = null;
+        Array.prototype.forEach.call(document.querySelectorAll('iframe'), function (f) {
+          var s = f.getAttribute('src') || '';
+          if (s === p || (want && s === want)) hit = f;
+        });
+        return hit;
+      },
+      /* 把消息中继给所有 iframe（跳过发起者，免得自己收自己的） */
+      pingAll: function (msg, src) {
+        Array.prototype.forEach.call(document.querySelectorAll('iframe'), function (f) {
+          var cw = null;
+          try { cw = f.contentWindow; } catch (e) { return; }
+          if (!cw || cw === src) return;
+          try { cw.postMessage(msg, '*'); } catch (e) {}
+        });
+      },
+      /* 让某个标签页重新拉一次公共下拉 */
+      pingFrame: function (p) {
+        var f = this.frameOf(p);
+        if (!f) return;
+        try { if (f.contentWindow) f.contentWindow.postMessage({ type: 'qg:opts-refresh' }, '*'); } catch (e) {}
+      },
+      closeTab: function (t) {
+        var i = this.tabs.indexOf(t);
+        if (i < 0) return;
+        this.tabs.splice(i, 1);
+        if (this.active === t.path) {
+          var next = this.tabs[i] || this.tabs[i - 1];
+          this.active = next ? next.path : '';
+        }
+      },
+      onUserCmd: function (cmd) {
+        if (cmd === 'pwd') { this.pwdForm = { old_password: '', new_password: '', confirm: '' }; this.pwdVisible = true; }
+        if (cmd === 'out') {
+          var self = this;
+          QG.confirm('确定退出登录吗？', '退出').then(function () {
+            return QG.post('/auth/logout').then(function () { location.href = '/login.html'; });
+          }).catch(function () {});
+        }
+      },
+      savePwd: function () {
+        var f = this.pwdForm;
+        if (!f.old_password || !f.new_password) return QG.warn('请填写完整');
+        if (f.new_password.length < 6) return QG.warn('新密码至少 6 位');
+        if (f.new_password !== f.confirm) return QG.warn('两次输入的新密码不一致');
+        var self = this;
+        self.saving = true;
+        QG.post('/auth/password', { old_password: f.old_password, new_password: f.new_password })
+          .then(function () { QG.toast('密码已修改，请重新登录'); setTimeout(function () { location.href = '/login.html'; }, 800); })
+          .catch(function (e) { QG.err(e); })
+          .finally(function () { self.saving = false; });
+      }
+    }
+  };
+});
+</script>
+</body>
+</html>

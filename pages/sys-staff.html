@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>内部员工 · 清关管理系统</title>
+<link rel="icon" href="/favicon.ico">
+<link rel="stylesheet" href="/assets/vendor/element-plus.css">
+<link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+<div id="app" v-cloak>
+
+<div class="page">
+  <div class="page-head">
+    <el-button class="btn-green" @click="openCreate()">新增员工</el-button>
+    <div class="spacer"></div>
+    <el-button @click="search()">刷新</el-button>
+  </div>
+
+  <div class="filter-bar">
+    <div class="fi"><label>关键字</label>
+      <el-input v-model="q.keyword" clearable placeholder="账号 / 姓名 / 手机" @keyup.enter="search(true)"></el-input>
+    </div>
+    <div class="fi"><label>状态</label>
+      <el-select v-model="q.status" clearable placeholder="全部">
+        <el-option label="启用" :value="1"></el-option><el-option label="停用" :value="0"></el-option>
+      </el-select>
+    </div>
+    <div class="acts">
+      <el-button type="primary" @click="search(true)">查询</el-button>
+      <el-button @click="doReset">重置</el-button>
+    </div>
+  </div>
+
+  <div class="table-card">
+    <el-table :data="rows" v-loading="loading" border stripe size="small" :max-height="620">
+      <el-table-column type="index" label="#" width="52" align="center"></el-table-column>
+      <el-table-column prop="username" label="账号" width="130"></el-table-column>
+      <el-table-column prop="real_name" label="姓名" width="120"></el-table-column>
+      <el-table-column prop="dept" label="部门" width="130"></el-table-column>
+      <el-table-column label="角色" width="130">
+        <template #default="{ row }">{{ row.role_name || '—' }}</template>
+      </el-table-column>
+      <el-table-column prop="phone" label="手机" width="140"></el-table-column>
+      <el-table-column prop="email" label="邮箱" min-width="180" show-overflow-tooltip></el-table-column>
+      <el-table-column label="最后登录" width="150">
+        <template #default="{ row }">{{ $qg.dateTime(row.last_login_at) || '—' }}</template>
+      </el-table-column>
+      <el-table-column prop="last_login_ip" label="登录IP" width="130"></el-table-column>
+      <el-table-column label="状态" width="90" align="center">
+        <template #default="{ row }">
+          <el-tag :type="Number(row.status) === 1 ? 'success' : 'info'" size="small" disable-transitions>
+            {{ Number(row.status) === 1 ? '启用' : '停用' }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="180" align="center" fixed="right">
+        <template #default="{ row }">
+          <span class="link" @click="openEdit(row)">编辑</span>
+          <el-divider direction="vertical"></el-divider>
+          <span class="link" @click="resetPwd(row)">重置密码</span>
+          <el-divider direction="vertical"></el-divider>
+          <span class="link" @click="remove(row, '', '确定删除员工「' + row.real_name + '」吗？')">删除</span>
+        </template>
+      </el-table-column>
+    </el-table>
+
+    <div style="display:flex;justify-content:flex-end;margin-top:12px">
+      <el-pagination v-model:current-page="q.page" v-model:page-size="q.pageSize" :total="total"
+        :page-sizes="[20,50,100,200]" background layout="total, sizes, prev, pager, next, jumper"
+        @current-change="pageChange" @size-change="sizeChange"></el-pagination>
+    </div>
+  </div>
+
+  <el-dialog v-model="dlg" :title="dlgTitle + '员工'" width="620px">
+    <el-form label-width="100px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 24px">
+        <el-form-item label="账号" required><el-input v-model="form.username" placeholder="登录账号"></el-input></el-form-item>
+        <el-form-item label="姓名" required><el-input v-model="form.real_name" placeholder="真实姓名"></el-input></el-form-item>
+        <el-form-item label="部门"><el-input v-model="form.dept" placeholder="如 操作部"></el-input></el-form-item>
+        <el-form-item label="角色">
+          <el-select v-model="form.role_id" clearable placeholder="请选择" style="width:100%">
+            <el-option v-for="r in roles" :key="r.id" :label="r.name" :value="r.id"></el-option>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="手机"><el-input v-model="form.phone"></el-input></el-form-item>
+        <el-form-item label="邮箱"><el-input v-model="form.email"></el-input></el-form-item>
+        <el-form-item label="状态">
+          <el-radio-group v-model="form.status"><el-radio :value="1">启用</el-radio><el-radio :value="0">停用</el-radio></el-radio-group>
+        </el-form-item>
+        <el-form-item label="初始密码" v-if="!fid">
+          <el-input v-model="form.password" placeholder="默认 123456"></el-input>
+        </el-form-item>
+      </div>
+    </el-form>
+    <template #footer>
+      <el-button @click="dlg = false">取消</el-button>
+      <el-button type="primary" :loading="saving" @click="save">确定</el-button>
+    </template>
+  </el-dialog>
+</div>
+
+</div>
+
+<script src="/assets/vendor/vue.global.prod.js"></script>
+<script src="/assets/vendor/element-plus.full.min.js"></script>
+<script src="/assets/vendor/icons.iife.min.js"></script>
+<script src="/assets/js/common.js"></script>
+<script>
+QG.mount(function () {
+  var base = QG.listPage({
+    base: '/staff',
+    query: {},
+    noOpts: true,
+    buildForm: function (row) {
+      return row
+        ? { username: row.username, real_name: row.real_name, dept: row.dept, role_id: row.role_id, phone: row.phone, email: row.email, status: Number(row.status) }
+        : { username: '', real_name: '', dept: '', role_id: null, phone: '', email: '', status: 1, password: '' };
+    },
+    beforeSave: function (f) {
+      if (!f.username) { QG.warn('请填写账号'); return false; }
+      if (!f.real_name) { QG.warn('请填写姓名'); return false; }
+      return f;
+    }
+  });
+  return Object.assign({}, base, {
+    data: function () {
+      var d = base.data.call(this);
+      d.roles = [];
+      return d;
+    },
+    created: function () {
+      var self = this;
+      if (base.created) base.created.call(this);
+      this.loadRoles();
+    },
+    methods: Object.assign({}, base.methods, {
+      loadRoles: function () {
+        var self = this;
+        QG.get('/roles').then(function (r) { self.roles = r || []; }).catch(function () {});
+      },
+      doReset: function () { this.q.keyword = ''; this.q.status = ''; this.reset(); },
+      resetPwd: function (row) {
+        var self = this;
+        ElementPlus.ElMessageBox.prompt('为「' + row.real_name + '」设置新密码', '重置密码', {
+          confirmButtonText: '确定', cancelButtonText: '取消', inputValue: '123456',
+          inputPattern: /.{6,}/, inputErrorMessage: '密码至少 6 位'
+        }).then(function (r) {
+          return QG.post('/staff/' + row.id + '/reset', { password: r.value }).then(function () {
+            QG.toast('密码已重置');
+          });
+        }).catch(function () {});
+      }
+    })
+  });
+});
+</script>
+</body>
+</html>

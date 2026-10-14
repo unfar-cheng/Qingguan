@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>权限管理 · 清关管理系统</title>
+<link rel="icon" href="/favicon.ico">
+<link rel="stylesheet" href="/assets/vendor/element-plus.css">
+<link rel="stylesheet" href="/assets/css/app.css">
+<style>
+  .perm-wrap{display:grid;grid-template-columns:320px 1fr;gap:14px;align-items:start}
+  .role-item{
+    border:1px solid var(--qg-border);border-radius:9px;padding:12px 14px;background:#fff;cursor:pointer;
+    margin-bottom:10px;transition:border-color .15s;
+  }
+  .role-item:hover{border-color:#a9c7e8}
+  .role-item.active{border-color:var(--qg-blue);box-shadow:0 0 0 2px rgba(47,111,179,.12)}
+  .role-item .rn{font-weight:600;color:#1f2328;display:flex;align-items:center;gap:8px}
+  .role-item .rm{font-size:12.5px;color:#8b949e;margin-top:4px}
+  .perm-tree{border:1px solid var(--qg-border);border-radius:8px;padding:12px 14px;max-height:520px;overflow:auto;background:#fff}
+  @media (max-width:1100px){.perm-wrap{grid-template-columns:1fr}}
+  .card-title .hint{font-size:12.5px;font-weight:400;color:#8b949e;margin-left:8px}
+  .card-title .pane-acts{display:flex;gap:8px;margin-left:auto}
+  .icon-tip{font-size:12px;color:#8b949e;line-height:1.5;margin-top:2px}
+  .nt-wrap{background:#f7f9fc;border:1px solid var(--qg-border);border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:13px;color:#4a5568}
+</style>
+</head>
+<body>
+<div id="app" v-cloak>
+
+<div class="page">
+  <div class="page-head">
+    <el-button class="btn-green" v-if="tab === 'role'" @click="openRole()">新增角色</el-button>
+    <el-button class="btn-green" v-else :disabled="!canNode" @click="openPerm(null, 0)">新增顶级菜单</el-button>
+    <div class="spacer"></div>
+    <el-button @click="loadAll">刷新</el-button>
+  </div>
+
+  <el-tabs v-model="tab">
+    <!-- ============ 页签 1：角色权限 ============ -->
+    <el-tab-pane label="角色权限" name="role">
+      <div class="perm-wrap" style="margin-top:4px">
+        <!-- 左：角色列表 -->
+        <div>
+          <div class="card" style="padding:12px 14px">
+            <h3 class="card-title" style="margin-bottom:10px">角色</h3>
+            <div v-for="r in roles" :key="r.id" class="role-item" :class="{ active: current && current.id === r.id }" @click="select(r)">
+              <div class="rn">
+                <span>{{ r.name }}</span>
+                <el-tag v-if="r.code === 'super'" type="danger" size="small" disable-transitions>超管</el-tag>
+                <el-tag :type="Number(r.status) === 1 ? 'success' : 'info'" size="small" disable-transitions>
+                  {{ Number(r.status) === 1 ? '启用' : '停用' }}
+                </el-tag>
+              </div>
+              <div class="rm">{{ r.code }}　·　{{ r.user_count }} 人</div>
+              <div class="rm" v-if="r.remark">{{ r.remark }}</div>
+            </div>
+            <div class="empty-holder" v-if="!roles.length">暂无角色</div>
+          </div>
+        </div>
+
+        <!-- 右：权限树 -->
+        <div>
+          <div class="card" v-if="current">
+            <h3 class="card-title">{{ current.name }} · 菜单与操作权限</h3>
+
+            <el-alert v-if="current.code === 'super'" type="warning" :closable="false" show-icon
+              title="超级管理员默认拥有全部权限，无需配置。" style="margin-bottom:12px"></el-alert>
+
+            <el-alert v-else type="info" :closable="false" show-icon style="margin-bottom:12px"
+              title="菜单和操作分开勾选，互不影响。"
+              description="例：只勾「清关订单」= 能看这个菜单，但「创建订单」按钮是灰的；要让他能建单，再把下面带「按钮」标记的「创建清关订单」勾上。上级菜单不用手动勾，保存时会自动带上。"></el-alert>
+
+            <div class="perm-tree">
+              <el-tree ref="tree" :data="tree" node-key="id" show-checkbox default-expand-all check-strictly
+                :props="{ label: 'name', children: 'children' }" :disabled="current.code === 'super'">
+                <template #default="{ data }">
+                  <span>
+                    <el-tag v-if="Number(data.type) === 2" type="info" size="small" disable-transitions
+                      style="margin-right:6px">按钮</el-tag>
+                    {{ data.name }}
+                    <span class="muted" style="font-size:12px;margin-left:6px">{{ data.code }}</span>
+                    <span v-if="data.path" class="muted" style="font-size:12px;margin-left:6px">{{ data.path }}</span>
+                  </span>
+                </template>
+              </el-tree>
+            </div>
+
+            <div class="footer-bar">
+              <el-button @click="openRole(current)">编辑角色</el-button>
+              <el-button v-if="current.code !== 'super'" @click="delRole(current)">删除角色</el-button>
+              <el-button type="primary" :loading="saving" :disabled="current.code === 'super'" @click="saveRolePerm">保存权限</el-button>
+            </div>
+          </div>
+          <div class="card" v-else>
+            <div class="empty-holder">请从左侧选择一个角色</div>
+          </div>
+        </div>
+      </div>
+    </el-tab-pane>
+
+    <!-- ============ 页签 2：菜单节点 ============ -->
+    <el-tab-pane label="菜单节点" name="menu">
+      <div class="nt-wrap" style="margin-top:4px">
+        左侧导航就是下面这张表生成的：<b>加一条 → 刷新后台，菜单里就有入口了</b>，不用再去数据库跑 SQL。<br>
+        「分组」（如 订单管理 / 系统设置）是不挂页面的顶级项，<b>页面路径留空</b>即可。
+        改动保存后本页会通知外壳自动重载菜单，若没生效请 <b>Ctrl+F5</b> 刷新整个后台。
+      </div>
+
+      <el-alert v-if="!canNode" type="warning" :closable="false" show-icon style="margin-bottom:12px"
+        title="你的账号没有「权限管理」权限，只能查看，不能增删改菜单节点。"></el-alert>
+
+      <div class="card">
+        <el-table :data="tree" row-key="id" border size="small" default-expand-all
+          :tree-props="{ children: 'children' }" style="width:100%">
+          <el-table-column prop="name" label="菜单名称" min-width="170"></el-table-column>
+          <el-table-column prop="code" label="权限标识" min-width="150"></el-table-column>
+          <el-table-column label="类型" width="76" align="center">
+            <template #default="{ row }">
+              <el-tag :type="Number(row.type) === 2 ? 'info' : 'primary'" size="small" disable-transitions>
+                {{ Number(row.type) === 2 ? '按钮' : '菜单' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="path" label="页面路径" min-width="200"></el-table-column>
+          <el-table-column prop="icon" label="图标" width="130"></el-table-column>
+          <el-table-column prop="sort" label="排序" width="64" align="center"></el-table-column>
+          <el-table-column label="状态" width="76" align="center">
+            <template #default="{ row }">
+              <el-tag :type="Number(row.status) === 1 ? 'success' : 'info'" size="small" disable-transitions>
+                {{ Number(row.status) === 1 ? '启用' : '停用' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="196">
+            <template #default="{ row }">
+              <el-button v-if="Number(row.parent_id) === 0" link type="primary" :disabled="!canNode"
+                title="在它下面加二级菜单" @click="openPerm(null, row.id)">加下级</el-button>
+              <el-button v-else link disabled
+                title="左侧导航只支持两级：二级菜单下不能再加下级，加了也显示不出来">加下级</el-button>
+              <el-button link type="primary" :disabled="!canNode" @click="openPerm(row)">编辑</el-button>
+              <el-button link type="danger" :disabled="!canNode" @click="delPerm(row)">删除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div class="empty-holder" v-if="!tree.length">还没有菜单节点</div>
+      </div>
+    </el-tab-pane>
+  </el-tabs>
+
+  <!-- 角色表单 -->
+  <el-dialog v-model="dlg" :title="(fid ? '编辑' : '新增') + '角色'" width="480px">
+    <el-form label-width="90px">
+      <el-form-item label="角色名称" required><el-input v-model="form.name" placeholder="如 操作员"></el-input></el-form-item>
+      <el-form-item label="角色标识" required>
+        <el-input v-model="form.code" placeholder="英文标识，如 operator" :disabled="!!fid && form.code === 'super'"></el-input>
+      </el-form-item>
+      <el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="2"></el-input></el-form-item>
+      <el-form-item label="状态">
+        <el-radio-group v-model="form.status"><el-radio :value="1">启用</el-radio><el-radio :value="0">停用</el-radio></el-radio-group>
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="dlg = false">取消</el-button>
+      <el-button type="primary" :loading="saving" @click="saveRole">确定</el-button>
+    </template>
+  </el-dialog>
+
+  <!-- 菜单节点表单 -->
+  <el-dialog v-model="pdlg" :title="(pfid ? '编辑' : '新增') + '菜单节点'" width="580px">
+    <el-form label-width="96px">
+      <el-form-item label="上级菜单">
+        <el-select v-model="pform.parent_id" style="width:100%">
+          <el-option :value="0" label="（顶级菜单 / 分组）"></el-option>
+          <el-option v-for="o in parentOptions" :key="o.id" :value="o.id" :label="o.label"></el-option>
+        </el-select>
+      </el-form-item>
+      <el-form-item label="菜单名称" required>
+        <el-input v-model="pform.name" placeholder="如 字典维护"></el-input>
+      </el-form-item>
+      <el-form-item label="权限标识" required>
+        <el-input v-model="pform.code" placeholder="英文唯一标识，如 system.dict（分组用 order / system 这种）"></el-input>
+      </el-form-item>
+      <el-form-item label="类型">
+        <el-radio-group v-model="pform.type">
+          <el-radio :value="1">菜单</el-radio>
+          <el-radio :value="2">按钮</el-radio>
+        </el-radio-group>
+      </el-form-item>
+      <el-form-item label="页面路径">
+        <el-input v-model="pform.path" placeholder="如 /pages/sys-dict.html；分组留空"></el-input>
+      </el-form-item>
+      <el-form-item label="图标">
+        <div style="width:100%">
+          <el-input v-model="pform.icon" placeholder="Element Plus 图标名，如 Collection；分组可留空"></el-input>
+          <div class="icon-tip">常用：Tickets · Files · Setting · Money · UserFilled · Collection · Document · PriceTag · Wallet</div>
+        </div>
+      </el-form-item>
+      <el-form-item label="排序">
+        <el-input-number v-model="pform.sort" :min="0" :controls="false" style="width:130px"></el-input-number>
+      </el-form-item>
+      <el-form-item label="状态">
+        <el-radio-group v-model="pform.status">
+          <el-radio :value="1">启用</el-radio>
+          <el-radio :value="0">停用</el-radio>
+        </el-radio-group>
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="pdlg = false">取消</el-button>
+      <el-button type="primary" :loading="saving" @click="savePermNode">确定</el-button>
+    </template>
+  </el-dialog>
+</div>
+
+</div>
+
+<script src="/assets/vendor/vue.global.prod.js"></script>
+<script src="/assets/vendor/element-plus.full.min.js"></script>
+<script src="/assets/vendor/icons.iife.min.js"></script>
+<script src="/assets/js/common.js"></script>
+<script>
+QG.mount(function () {
+  return {
+    data: function () {
+      return {
+        tab: 'role',
+        /* 默认 true（乐观），等 /auth/me 回来再按真实权限收紧：
+           宁可让后端拦，也不要因为权限字段没取到就把功能整个藏掉 */
+        canNode: true,
+        roles: [], tree: [], current: null,
+        dlg: false, fid: null, saving: false,
+        form: { name: '', code: '', remark: '', status: 1 },
+        // 菜单节点表单
+        pdlg: false, pfid: null,
+        pform: { parent_id: 0, name: '', code: '', type: 1, path: '', icon: '', sort: 0, status: 1 }
+      };
+    },
+    computed: {
+      /* 上级菜单下拉：把树拍平并缩进；编辑时把自己和整棵子树排除掉，避免形成死循环 */
+      parentOptions: function () {
+        var bag = {};
+        var self = this;
+        var mark = function (n) {
+          bag[n.id] = true;
+          (n.children || []).forEach(mark);
+        };
+        if (self.pfid) {
+          var find = function (nodes) {
+            (nodes || []).forEach(function (n) {
+              if (n.id === self.pfid) mark(n);
+              else find(n.children);
+            });
+          };
+          find(self.tree);
+        }
+        var out = [];
+        var flat = function (nodes, depth) {
+          (nodes || []).forEach(function (n) {
+            if (bag[n.id]) return;
+            out.push({ id: n.id, label: new Array(depth + 1).join('\u3000') + n.name + '  (' + n.code + ')' });
+            flat(n.children, depth + 1);
+          });
+        };
+        flat(self.tree, 0);
+        return out;
+      }
+    },
+    created: function () {
+      var self = this;
+      this.loadAll();
+      QG.me().then(function () { self.canNode = QG.can('system.role'); }).catch(function () {});
+    },
+    methods: {
+      loadAll: function () {
+        var self = this;
+        return Promise.all([QG.get('/roles'), QG.get('/permissions')]).then(function (r) {
+          self.roles = r[0] || [];
+          self.tree = r[1] || [];
+          if (self.current) {
+            self.current = self.roles.filter(function (x) { return x.id === self.current.id; })[0] || self.roles[0] || null;
+          }
+          if (!self.current && self.roles.length) self.current = self.roles[0];
+          self.$nextTick(function () { self.syncTree(); });
+        }).catch(function (e) { QG.err(e); });
+      },
+
+      /* -------- 角色权限 -------- */
+      syncTree: function () {
+        var t = this.$refs.tree;
+        if (!t || !this.current) return;
+        var ids = (this.current.permission_ids || []).slice();
+        /* 树是 check-strictly（各项独立勾选），所以直接按授权列表勾，不再「只勾叶子」。
+           为什么不能再用「只勾叶子 + 父级半选」这一套：加了 type=2 的按钮节点以后，
+           菜单节点不再是叶子；「只授权菜单、没授权它的按钮」这种状态在树上将无处体现，
+           而 setCheckedKeys 的结果又直接决定保存时提交什么 —— 于是「打开权限页随手点一下
+           保存」就会把菜单权限清空。改成按授权列表精确回显后没有这个问题。 */
+        var allIds = [];
+        (function walk(nodes) {
+          (nodes || []).forEach(function (n) {
+            allIds.push(n.id);
+            if (n.children && n.children.length) walk(n.children);
+          });
+        })(this.tree);
+        t.setCheckedKeys(ids.filter(function (id) { return allIds.indexOf(id) >= 0; }), false);
+      },
+      select: function (r) {
+        this.current = r;
+        var self = this;
+        this.$nextTick(function () { self.syncTree(); });
+      },
+      openRole: function (r) {
+        this.fid = r ? r.id : null;
+        this.form = r
+          ? { name: r.name, code: r.code, remark: r.remark || '', status: Number(r.status) }
+          : { name: '', code: '', remark: '', status: 1 };
+        this.dlg = true;
+      },
+      saveRole: function () {
+        var self = this;
+        if (!self.form.name || !self.form.code) return QG.warn('角色名称与标识必填');
+        self.saving = true;
+        var p = self.fid ? QG.put('/roles/' + self.fid, self.form) : QG.post('/roles', self.form);
+        p.then(function () {
+          QG.toast(self.fid ? '已保存' : '已新增');
+          self.dlg = false;
+          self.loadAll();
+        }).catch(function (e) { QG.err(e); })
+          .finally(function () { self.saving = false; });
+      },
+      delRole: function (r) {
+        var self = this;
+        QG.confirm('确定删除角色「' + r.name + '」吗？', '删除确认').then(function () {
+          return QG.del('/roles/' + r.id).then(function () {
+            QG.toast('已删除');
+            self.current = null;
+            self.loadAll();
+          });
+        }).catch(function (e) { if (e && e.message && e.message !== 'cancel') QG.err(e); });
+      },
+      saveRolePerm: function () {
+        var self = this;
+        var t = this.$refs.tree;
+        if (!t || !self.current) return;
+        /* check-strictly 下没有半选状态；祖先节点由后端 syncRolePermission 自动补齐，
+           所以这里只提交用户实际勾上的那些（含勾上的父级）。 */
+        var ids = t.getCheckedKeys();
+        self.saving = true;
+        QG.put('/roles/' + self.current.id + '/permissions', { permission_ids: ids })
+          .then(function () {
+            QG.toast('权限已保存');
+            self.loadAll();
+          })
+          .catch(function (e) { QG.err(e); })
+          .finally(function () { self.saving = false; });
+      },
+
+      /* -------- 菜单节点 -------- */
+      openPerm: function (row, parentId) {
+        this.pfid = row ? Number(row.id) : null;
+        this.pform = row
+          ? {
+              parent_id: Number(row.parent_id) || 0,
+              name: row.name,
+              code: row.code,
+              type: Number(row.type) || 1,
+              path: row.path || '',
+              icon: row.icon || '',
+              sort: Number(row.sort) || 0,
+              status: Number(row.status) === 0 ? 0 : 1
+            }
+          : { parent_id: Number(parentId) || 0, name: '', code: '', type: 1, path: '', icon: '', sort: 0, status: 1 };
+        this.pdlg = true;
+      },
+      savePermNode: function () {
+        var self = this;
+        var f = self.pform;
+        if (!f.name || !f.code) return QG.warn('菜单名称和权限标识必填');
+        if (f.code.indexOf(' ') >= 0) return QG.warn('权限标识不能带空格');
+        if (Number(f.type) === 1 && Number(f.parent_id) > 0 && !f.path) {
+          return QG.warn('这是二级菜单，请填写页面路径（如 /pages/xxx.html）');
+        }
+        if (f.path && f.path.charAt(0) !== '/') return QG.warn('页面路径要以 / 开头，如 /pages/xxx.html');
+
+        self.saving = true;
+        var body = {
+          parent_id: Number(f.parent_id) || 0,
+          name: f.name,
+          code: f.code,
+          type: Number(f.type) || 1,
+          path: f.path || '',
+          icon: f.icon || '',
+          sort: Number(f.sort) || 0,
+          status: Number(f.status) === 0 ? 0 : 1
+        };
+        var p = self.pfid ? QG.put('/permissions/' + self.pfid, body) : QG.post('/permissions', body);
+        p.then(function () {
+          QG.toast(self.pfid ? '已保存' : '已新增');
+          self.pdlg = false;
+          self.loadAll();
+          self.notifyShell();
+        }).catch(function (e) { QG.err(e); })
+          .finally(function () { self.saving = false; });
+      },
+      delPerm: function (row) {
+        var self = this;
+        QG.confirm('确定删除菜单节点「' + row.name + '」吗？删除后，左侧导航里这个入口就没了。', '删除确认')
+          .then(function () {
+            return QG.del('/permissions/' + row.id).then(function () {
+              QG.toast('已删除');
+              self.loadAll();
+              self.notifyShell();
+            });
+          })
+          .catch(function (e) { if (e && e.message && e.message !== 'cancel') QG.err(e); });
+      },
+      /* 通知外壳（index.html）重新拉一次菜单，省得用户手动 Ctrl+F5 */
+      notifyShell: function () {
+        try {
+          if (window.parent && window.parent !== window) {
+            window.parent.postMessage({ type: 'qg:menu-refresh' }, '*');
+          }
+        } catch (e) {}
+      }
+    }
+  };
+});
+</script>
+</body>
+</html>

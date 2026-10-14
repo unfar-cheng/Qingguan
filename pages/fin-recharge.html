@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>充值记录 · 清关管理系统</title>
+<link rel="icon" href="/favicon.ico">
+<link rel="stylesheet" href="/assets/vendor/element-plus.css">
+<link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+<div id="app" v-cloak>
+
+<div class="page">
+  <div class="page-head">
+    <el-button class="btn-green" @click="openCreate()">登记充值</el-button>
+    <div class="spacer"></div>
+    <el-button @click="search()">刷新</el-button>
+  </div>
+
+  <div class="filter-bar">
+    <div class="fi"><label>公司</label>
+      <el-select v-model="q.company_id" filterable clearable placeholder="全部">
+        <el-option v-for="o in opts.importers" :key="o.id" :label="o.company_name" :value="o.id"></el-option>
+      </el-select>
+    </div>
+    <div class="fi"><label>状态</label>
+      <el-select v-model="q.status" clearable placeholder="全部">
+        <el-option label="待确认" :value="0"></el-option><el-option label="已入账" :value="1"></el-option><el-option label="已驳回" :value="2"></el-option>
+      </el-select>
+    </div>
+    <div class="fi"><label>关键字</label>
+      <el-input v-model="q.keyword" clearable placeholder="公司名" @keyup.enter="search(true)"></el-input>
+    </div>
+    <div class="acts">
+      <el-button type="primary" @click="search(true)">查询</el-button>
+      <el-button @click="doReset">重置</el-button>
+    </div>
+  </div>
+
+  <div class="table-card">
+    <el-table :data="rows" v-loading="loading" border stripe size="small" :max-height="600">
+      <el-table-column type="index" label="#" width="52" align="center"></el-table-column>
+      <el-table-column label="公司" min-width="220" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.company_name || '—' }}</template>
+      </el-table-column>
+      <el-table-column label="充值金额" width="140" align="right">
+        <template #default="{ row }"><b class="money" style="color:#2f9e63">{{ $qg.money(row.amount) }}</b></template>
+      </el-table-column>
+      <el-table-column prop="pay_type" label="支付方式" width="120"></el-table-column>
+      <el-table-column prop="voucher" label="凭证 / 流水号" min-width="160" show-overflow-tooltip></el-table-column>
+      <el-table-column label="状态" width="100" align="center">
+        <template #default="{ row }">
+          <el-tag :type="['warning','success','danger'][Number(row.status)]" size="small" disable-transitions>{{ row.status_text }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="remark" label="备注" min-width="150" show-overflow-tooltip></el-table-column>
+      <el-table-column label="登记人" width="110">
+        <template #default="{ row }">{{ row.operator_name || '—' }}</template>
+      </el-table-column>
+      <el-table-column label="登记时间" width="150">
+        <template #default="{ row }">{{ $qg.dateTime(row.created_at) }}</template>
+      </el-table-column>
+      <el-table-column label="操作" width="160" align="center" fixed="right">
+        <template #default="{ row }">
+          <template v-if="Number(row.status) === 0">
+            <span class="link" @click="audit(row, 1)">入账</span>
+            <el-divider direction="vertical"></el-divider>
+            <span class="link" @click="audit(row, 2)">驳回</span>
+          </template>
+          <el-dropdown trigger="click" @command="c => rowCmd(c, row)">
+            <span class="link">更多<el-icon><ArrowDown /></el-icon></span>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="edit" :disabled="Number(row.status) === 1">编辑</el-dropdown-item>
+                <el-dropdown-item command="del" divided :disabled="Number(row.status) === 1">删除</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </template>
+      </el-table-column>
+    </el-table>
+
+    <div style="display:flex;justify-content:flex-end;margin-top:12px">
+      <el-pagination v-model:current-page="q.page" v-model:page-size="q.pageSize" :total="total"
+        :page-sizes="[20,50,100,200]" background layout="total, sizes, prev, pager, next, jumper"
+        @current-change="pageChange" @size-change="sizeChange"></el-pagination>
+    </div>
+  </div>
+
+  <el-dialog v-model="dlg" :title="dlgTitle + '充值记录'" width="520px">
+    <el-form label-width="110px">
+      <el-form-item label="公司" required>
+        <el-select v-model="form.company_id" filterable placeholder="请选择公司" style="width:100%">
+          <el-option v-for="o in opts.importers" :key="o.id" :label="o.company_name" :value="o.id"></el-option>
+        </el-select>
+      </el-form-item>
+      <el-form-item label="充值金额" required>
+        <el-input v-model="form.amount" placeholder="0.00"></el-input>
+      </el-form-item>
+      <el-form-item label="支付方式">
+        <el-select v-model="form.pay_type" filterable allow-create clearable placeholder="请选择" style="width:100%">
+          <el-option v-for="o in payTypes" :key="o.value" :label="o.label" :value="o.value"></el-option>
+        </el-select>
+      </el-form-item>
+      <el-form-item label="凭证 / 流水号"><el-input v-model="form.voucher"></el-input></el-form-item>
+      <el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="2"></el-input></el-form-item>
+      <el-alert type="info" :closable="false" show-icon
+        title="充值登记后为「待确认」，入账后金额才计入客户账户余额。" style="margin-top:4px"></el-alert>
+    </el-form>
+    <template #footer>
+      <el-button @click="dlg = false">取消</el-button>
+      <el-button type="primary" :loading="saving" @click="save">确定</el-button>
+    </template>
+  </el-dialog>
+</div>
+
+</div>
+
+<script src="/assets/vendor/vue.global.prod.js"></script>
+<script src="/assets/vendor/element-plus.full.min.js"></script>
+<script src="/assets/vendor/icons.iife.min.js"></script>
+<script src="/assets/js/common.js"></script>
+<script>
+QG.mount(function () {
+  var cid = /[?&]company_id=(\d+)/.exec(location.search);
+  var base = QG.listPage({
+    base: '/finance/recharges',
+    query: cid ? { company_id: cid[1] } : {},
+    buildForm: function (row) {
+      return row
+        ? { company_id: row.company_id, amount: row.amount, pay_type: row.pay_type, voucher: row.voucher, remark: row.remark }
+        : { company_id: null, amount: '', pay_type: '', voucher: '', remark: '' };
+    },
+    beforeSave: function (f) {
+      if (!f.company_id) { QG.warn('请选择公司'); return false; }
+      if (!f.amount || Number(f.amount) <= 0) { QG.warn('请填写正确的充值金额'); return false; }
+      return f;
+    }
+  });
+  return Object.assign({}, base, {
+    computed: {
+      payTypes: function () { return QG.dictList('pay_type'); }
+    },
+    methods: Object.assign({}, base.methods, {
+      doReset: function () { this.q.company_id = ''; this.q.status = ''; this.q.keyword = ''; this.reset(); },
+      rowCmd: function (cmd, row) {
+        if (cmd === 'edit') this.openEdit(row);
+        if (cmd === 'del') this.remove(row, '', '确定删除该充值记录吗？');
+      },
+      audit: function (row, status) {
+        var self = this;
+        var txt = status === 1 ? '确认该笔充值已到账并计入客户余额？' : '确定驳回该笔充值记录？';
+        QG.confirm(txt, status === 1 ? '入账确认' : '驳回确认').then(function () {
+          return QG.post('/finance/recharges/' + row.id + '/audit', { status: status }).then(function () {
+            QG.toast(status === 1 ? '已入账' : '已驳回');
+            self.search();
+          });
+        }).catch(function (e) { if (e && e.message && e.message !== 'cancel') QG.err(e); });
+      }
+    })
+  });
+});
+</script>
+</body>
+</html>

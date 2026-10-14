@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>报价方案 · 清关管理系统</title>
+<link rel="icon" href="/favicon.ico">
+<link rel="stylesheet" href="/assets/vendor/element-plus.css">
+<link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+<div id="app" v-cloak>
+
+<div class="page">
+  <div class="page-head">
+    <el-button class="btn-green" @click="openCreate()">新增方案</el-button>
+    <div class="spacer"></div>
+    <el-button @click="search()">刷新</el-button>
+  </div>
+
+  <el-alert type="info" :closable="false" show-icon style="margin-bottom:14px"
+    title="报价方案供「创建订单」第一步选择。方案金额可留空，下单时再手工录入；注意事项支持多行文本。"></el-alert>
+
+  <div class="filter-bar">
+    <div class="fi"><label>方案名称</label>
+      <el-input v-model="q.keyword" clearable placeholder="方案名称 / 编码" @keyup.enter="search(true)"></el-input>
+    </div>
+    <div class="fi"><label>状态</label>
+      <el-select v-model="q.status" clearable placeholder="全部">
+        <el-option label="启用" :value="1"></el-option><el-option label="停用" :value="0"></el-option>
+      </el-select>
+    </div>
+    <div class="acts">
+      <el-button type="primary" @click="search(true)">查询</el-button>
+      <el-button @click="doReset">重置</el-button>
+    </div>
+  </div>
+
+  <div class="table-card">
+    <el-table :data="rows" v-loading="loading" border stripe size="small" :max-height="620">
+      <el-table-column prop="sort" label="排序" width="70" align="center"></el-table-column>
+      <el-table-column prop="plan_code" label="方案编码" width="100"></el-table-column>
+      <el-table-column prop="plan_name" label="方案名称" min-width="150"></el-table-column>
+      <el-table-column label="方案金额" width="120" align="right">
+        <template #default="{ row }">{{ row.amount === null ? '待录入' : $qg.money(row.amount) }}</template>
+      </el-table-column>
+      <el-table-column prop="applicable_port" label="适用港口" min-width="150" show-overflow-tooltip></el-table-column>
+      <el-table-column prop="customs_port" label="清关港" min-width="130" show-overflow-tooltip></el-table-column>
+      <el-table-column prop="intro" label="方案介绍" min-width="180" show-overflow-tooltip></el-table-column>
+      <el-table-column label="注意事项" min-width="200">
+        <template #default="{ row }">
+          <el-tooltip v-if="row.notice" :content="row.notice" placement="top" :show-after="300">
+            <span class="ellip" style="max-width:180px;white-space:pre-line">{{ row.notice }}</span>
+          </el-tooltip>
+          <span v-else class="muted">—</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="状态" width="90" align="center">
+        <template #default="{ row }">
+          <el-tag :type="Number(row.status) === 1 ? 'success' : 'info'" size="small" disable-transitions>
+            {{ Number(row.status) === 1 ? '启用' : '停用' }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="130" align="center" fixed="right">
+        <template #default="{ row }">
+          <span class="link" @click="openEdit(row)">编辑</span>
+          <el-divider direction="vertical"></el-divider>
+          <span class="link" @click="toggle(row)">{{ Number(row.status) === 1 ? '停用' : '启用' }}</span>
+          <el-divider direction="vertical"></el-divider>
+          <span class="link" @click="remove(row, '', '确定删除方案「' + row.plan_name + '」吗？')">删除</span>
+        </template>
+      </el-table-column>
+    </el-table>
+  </div>
+
+  <el-dialog v-model="dlg" :title="dlgTitle + '报价方案'" width="680px">
+    <el-form label-width="100px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 24px">
+        <el-form-item label="方案编码" required><el-input v-model="form.plan_code" placeholder="如 A / B / C"></el-input></el-form-item>
+        <el-form-item label="方案名称" required><el-input v-model="form.plan_name" placeholder="如 方案A--美森"></el-input></el-form-item>
+        <el-form-item label="方案金额"><el-input v-model="form.amount" placeholder="留空表示下单时录入"></el-input></el-form-item>
+        <el-form-item label="排序"><el-input v-model="form.sort" placeholder="数字越小越靠前"></el-input></el-form-item>
+        <el-form-item label="适用港口"><el-input v-model="form.applicable_port" placeholder="如 宁波港 / 上海港"></el-input></el-form-item>
+        <el-form-item label="清关港"><el-input v-model="form.customs_port" placeholder="如 洛杉矶港"></el-input></el-form-item>
+      </div>
+      <el-form-item label="方案介绍"><el-input v-model="form.intro" placeholder="如：查验费补贴上限 2000 USD"></el-input></el-form-item>
+      <el-form-item label="注意事项">
+        <el-input v-model="form.notice" type="textarea" :rows="6"
+          placeholder="每行一条，如：&#10;1、限重 16T 以内，纺织品 + 鞋帽 + 箱包 仅限 15 方以内/柜；&#10;2、订舱申报品名必须填写普货品名；"></el-input>
+      </el-form-item>
+      <el-form-item label="状态">
+        <el-radio-group v-model="form.status"><el-radio :value="1">启用</el-radio><el-radio :value="0">停用</el-radio></el-radio-group>
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="dlg = false">取消</el-button>
+      <el-button type="primary" :loading="saving" @click="save">确定</el-button>
+    </template>
+  </el-dialog>
+</div>
+
+</div>
+
+<script src="/assets/vendor/vue.global.prod.js"></script>
+<script src="/assets/vendor/element-plus.full.min.js"></script>
+<script src="/assets/vendor/icons.iife.min.js"></script>
+<script src="/assets/js/common.js"></script>
+<script>
+QG.mount(function () {
+  var base = QG.listPage({
+    base: '/plans',
+    query: {},
+    buildForm: function (row) {
+      return row
+        ? {
+            plan_code: row.plan_code, plan_name: row.plan_name,
+            amount: row.amount === null ? '' : row.amount,
+            applicable_port: row.applicable_port, customs_port: row.customs_port,
+            intro: row.intro, notice: row.notice, sort: row.sort, status: Number(row.status)
+          }
+        : { plan_code: '', plan_name: '', amount: '', applicable_port: '', customs_port: '', intro: '', notice: '', sort: 0, status: 1 };
+    },
+    beforeSave: function (f) {
+      if (!f.plan_code || !f.plan_name) { QG.warn('方案编码与名称必填'); return false; }
+      return f;
+    },
+    // 注：写 /plans 成功后 common.js 会自动广播「公共下拉数据失效」，
+    // 其它 iframe（创建订单页等）的旧方案缓存会一起作废，这里不用再手工清。
+    onSaved: function () { this.search(); }
+  });
+  return Object.assign({}, base, {
+    methods: Object.assign({}, base.methods, {
+      doReset: function () { this.q.keyword = ''; this.q.status = ''; this.reset(); },
+      toggle: function (row) {
+        var self = this;
+        var payload = {
+          plan_code: row.plan_code, plan_name: row.plan_name,
+          amount: row.amount === null ? '' : row.amount,
+          applicable_port: row.applicable_port, customs_port: row.customs_port,
+          intro: row.intro, notice: row.notice, sort: row.sort,
+          status: Number(row.status) === 1 ? 0 : 1
+        };
+        QG.put('/plans/' + row.id, payload).then(function () {
+          QG.toast('已更新');
+          self.search();
+        }).catch(function (e) { QG.err(e); });
+      }
+    })
+  });
+});
+</script>
+</body>
+</html>

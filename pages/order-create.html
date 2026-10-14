@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>创建订单 · 清关管理系统</title>
+<link rel="icon" href="/favicon.ico">
+<link rel="stylesheet" href="/assets/vendor/element-plus.css">
+<link rel="stylesheet" href="/assets/css/app.css">
+<style>
+  .basic-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 30px}
+  .basic-grid .el-form-item{margin-bottom:14px}
+  .up-row{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+  /* 弹窗内主体滚动，底部按钮固定 */
+  .create-body{max-height:calc(92vh - 168px);overflow-y:auto;padding-right:8px}
+  .create-body::-webkit-scrollbar{width:7px}
+  .create-body::-webkit-scrollbar-thumb{background:#ccd3da;border-radius:4px}
+  .qg-create-dlg{max-width:97vw}
+  .plan-card .pn{font-size:14px}
+  .plan-card .notice.clamp{max-height:42px}
+  .plan-card .more{padding:0 8px 2px;text-align:right}
+
+  /* ============ 顶部：左「申报ISF+清关流程」入口卡 + 右「当前报价方案」 ============
+     与原系统一致：点左侧卡片弹窗建单，右侧平铺展示当前生效的报价方案（只读预览）。
+     配色/尺寸按原系统截图 1:1 取色（卡片 320 宽、边框 #e9eefb、标题 #1b2a6e、金额 #e6a23c）。 */
+  .page-head.hero{display:grid;grid-template-columns:320px minmax(0,1fr);gap:26px;align-items:start;margin-bottom:16px}
+  .flow-wrap{display:block}
+  /* 入口卡本体仍是 el-button.btn-green —— 保住「置灰 + 悬停提示 + 原生 disabled 不派发鼠标事件」
+     这套权限契约，只把外观改成原系统那张白底卡片。
+     ⚠️ .btn-green 自带 !important，所以这里也必须带 !important 才能盖住。 */
+  .flow-card.el-button,
+  .flow-card.el-button:hover,
+  .flow-card.el-button:focus,
+  .flow-card.el-button:active{
+    display:block;width:100%;height:auto;padding:0;margin:0;
+    background:#fff!important;border:1px solid #e9eefb!important;color:#1f2328!important;
+    border-radius:10px;white-space:normal;line-height:normal;overflow:hidden;
+    transition:border-color .15s,box-shadow .15s;
+  }
+  /* Element Plus 会把插槽内容包进 <span class="el-button__text">，而它是 inline-flex，
+     不掰成 block 里面的块级元素就排不出一列 */
+  .flow-card.el-button>span{display:block!important;width:100%}
+  .flow-card.el-button:not(.is-disabled):hover{border-color:#b7cdf0!important;box-shadow:0 4px 16px rgba(43,74,154,.12)}
+  .flow-card.el-button.is-disabled{opacity:.55}
+  .flow-card .fc-title{padding:14px 10px 0;text-align:center;font-size:15px;font-weight:600;color:#1b2a6e}
+  .flow-card .fc-art{margin:12px 30px 0}
+  .flow-card .fc-art svg{display:block;width:100%;height:auto;border-radius:8px}
+  .flow-card .fc-sub{padding:9px 10px 11px;text-align:center;font-size:12px;color:#9aa4b2}
+
+  .hero-plans{min-width:0}
+  .plan-view{display:grid;grid-template-columns:repeat(3,1fr);gap:17px}
+  .plan-tile{background:#fff;border:1px solid #e9eefb;border-radius:8px;padding:14px 18px 6px;min-width:0;cursor:pointer;transition:border-color .15s,box-shadow .15s}
+  .plan-tile:hover{border-color:#b7cdf0;box-shadow:0 3px 12px rgba(43,74,154,.10)}
+  .plan-tile .pt-n{font-size:15px;font-weight:600;color:#1b2a6e;line-height:1.5;margin-bottom:5px;word-break:break-all}
+  .plan-tile .pt-r{font-size:13.5px;line-height:1.8;color:#606266;white-space:pre-wrap;word-break:break-all}
+  .plan-tile .pt-r.money{color:#e6a23c}
+  .plan-tile .pt-r.clamp{max-height:48px;overflow:hidden}
+  .plan-tile .more{text-align:right;font-size:13px;padding:2px 0 4px}
+
+  @media (max-width:1500px){
+    .page-head.hero{grid-template-columns:280px minmax(0,1fr);gap:20px}
+    .flow-card .fc-art{margin:12px 22px 0}
+  }
+  @media (max-width:1100px){
+    .page-head.hero{grid-template-columns:1fr}
+    .plan-view{grid-template-columns:1fr}
+    .flow-card{max-width:320px}
+    .basic-grid{grid-template-columns:1fr}
+    .plan-grid{grid-template-columns:1fr}
+    .addr-grid{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+<div id="app" v-cloak>
+
+<div class="page">
+  <!-- ============ 顶部：左侧「申报ISF+清关流程」入口卡 + 右侧当前报价方案 ============
+       · 点卡片 → 打开「新增海运提单」大弹窗建单（原系统就是这个交互）
+       · 右侧把当前生效的方案平铺出来，随时对照；点某张方案 = 建单并把该方案预选上
+       · 卡片仍是 el-button.btn-green：权限不足时置灰并悬停提示（见 cdp-create-perm-test.js） -->
+  <div class="page-head hero">
+    <el-tooltip content="没有创建订单的权限，请联系管理员开通" :disabled="canCreate" placement="right">
+      <span class="flow-wrap">
+        <el-button class="btn-green flow-card" :disabled="!canCreate" @click="openCreate">
+          <div class="fc-title">申报ISF+清关流程</div>
+          <div class="fc-art">
+            <!-- 原系统占位插画：浅蓝画布 + 中蓝圆 + 深蓝方块 + 深蓝横条 -->
+            <svg viewBox="0 0 260 146" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <rect width="260" height="146" rx="8" fill="#d5e7ff"></rect>
+              <circle cx="72" cy="74" r="21" fill="#7fb3ff"></circle>
+              <rect x="112" y="35" width="97" height="66" rx="6" fill="#2b4a9a"></rect>
+              <rect x="63" y="105" width="121" height="5" rx="2.5" fill="#2b4a9a"></rect>
+            </svg>
+          </div>
+          <div class="fc-sub">新增海运提单</div>
+        </el-button>
+      </span>
+    </el-tooltip>
+
+    <div class="hero-plans">
+      <div class="plan-view" v-if="opts.plans.length">
+        <div class="plan-tile" v-for="p in opts.plans" :key="p.id" @click="createWith(p)">
+          <div class="pt-n">方案名称：{{ p.plan_name }}</div>
+          <div class="pt-r money">方案金额：{{ planMoney(p) }}</div>
+          <div class="pt-r">适用港口：{{ p.applicable_port || '—' }}</div>
+          <div class="pt-r">方案介绍：{{ p.intro || '—' }}</div>
+          <div class="pt-r" v-if="p.notice" :class="{ clamp: !tileOpen[p.id] }">注意事项：{{ p.notice }}</div>
+          <div class="pt-r" v-else>注意事项：—</div>
+          <div class="more" v-if="p.notice">
+            <span class="link" @click.stop="toggleTile(p.id)">{{ tileOpen[p.id] ? '收起' : '展开' }}</span>
+          </div>
+        </div>
+      </div>
+      <div class="empty-holder" v-else>
+        还没有报价方案。请先到「系统设置 → 报价方案」录入方案后再创建订单。
+      </div>
+    </div>
+  </div>
+
+  <div class="table-card">
+    <div class="table-tools">
+      <b style="font-size:14px">最近创建</b>
+      <span class="muted" style="font-size:12.5px">按创建时间倒序，最多 10 条；点提单号可继续编辑</span>
+      <div class="spacer"></div>
+      <el-button size="small" @click="loadRecent">刷新</el-button>
+    </div>
+    <el-table :data="recent" v-loading="loading" border stripe size="small">
+      <el-table-column type="index" label="#" width="48" align="center"></el-table-column>
+      <el-table-column label="主提单号 / MBL" min-width="150">
+        <template #default="{ row }"><span class="link" @click="openEdit(row)">{{ row.mbl_no || '—' }}</span></template>
+      </el-table-column>
+      <el-table-column prop="hbl_no" label="分单号" width="130" show-overflow-tooltip></el-table-column>
+      <el-table-column label="进口商" min-width="180" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.importer_name || '—' }}</template>
+      </el-table-column>
+      <el-table-column prop="carrier" label="船司" min-width="130" show-overflow-tooltip></el-table-column>
+      <el-table-column label="柜号" min-width="140" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.container_nos || '—' }}</template>
+      </el-table-column>
+      <el-table-column label="报价方案" width="130" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.plan_name || '—' }}</template>
+      </el-table-column>
+      <el-table-column label="清关状态" width="96" align="center">
+        <template #default="{ row }">
+          <el-tag :type="$qg.statusTag(row.customs_status)" size="small" disable-transitions>{{ row.customs_status_text }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="创建时间" width="140">
+        <template #default="{ row }">{{ $qg.dateTime(row.created_at) }}</template>
+      </el-table-column>
+      <el-table-column label="操作" width="110" align="center" fixed="right">
+        <template #default="{ row }">
+          <span class="link" @click="openEdit(row)">编辑</span>
+          <el-divider direction="vertical"></el-divider>
+          <span class="link" @click="goList">查看</span>
+        </template>
+      </el-table-column>
+    </el-table>
+    <div class="empty-holder" v-if="!loading && !recent.length">还没有订单，点左上方「申报ISF+清关流程」开始录入</div>
+  </div>
+
+  <!-- ==================== 新增 / 编辑海运提单（大弹窗） ==================== -->
+  <el-dialog v-model="dlg" class="qg-create-dlg" :title="form.id ? '编辑海运提单' : '新增海运提单'"
+    width="1180px" top="4vh" :close-on-click-modal="false" destroy-on-close>
+    <div class="create-body">
+
+      <!-- 基本信息：左右各 8 行，共 16 个字段（顺序与原系统一致） -->
+      <div class="section-bar" style="margin-top:0"><span>基本信息</span></div>
+      <el-form label-width="150px" label-position="right">
+        <div class="basic-grid">
+          <!-- 左列 -->
+          <el-form-item label="主提单号 / MBL" required>
+            <el-input v-model="form.mbl_no" placeholder="请输入主提单号"></el-input>
+          </el-form-item>
+          <el-form-item label="分单号 / HBL">
+            <el-input v-model="form.hbl_no" placeholder="请输入分单号"></el-input>
+          </el-form-item>
+
+          <el-form-item label="船司" required>
+            <el-select v-model="form.carrier" filterable allow-create clearable placeholder="请选择或输入" style="width:100%">
+              <el-option v-for="o in dict('carrier')" :key="o.value" :label="o.label" :value="o.value"></el-option>
+            </el-select>
+          </el-form-item>
+          <el-form-item label="申报 ISF">
+            <el-radio-group v-model="form.isf_flag">
+              <el-radio :value="1">是</el-radio><el-radio :value="0">否</el-radio>
+            </el-radio-group>
+          </el-form-item>
+
+          <el-form-item label="进口商 / BOND" required>
+            <el-select v-model="form.importer_id" filterable clearable placeholder="请选择进口商" style="width:100%" @change="onImporterChange">
+              <el-option v-for="o in opts.importers" :key="o.id" :label="o.company_name" :value="o.id">
+                <span>{{ o.company_name }}</span>
+                <span class="muted" style="float:right;font-size:12px">{{ o.bond_no || o.city }}</span>
+              </el-option>
+            </el-select>
+          </el-form-item>
+          <el-form-item label="提拆派">
+            <el-radio-group v-model="form.pickup_flag">
+              <el-radio :value="1">是</el-radio><el-radio :value="0">否</el-radio>
+            </el-radio-group>
+          </el-form-item>
+
+          <el-form-item label="船名 / Ocean Vessel" required>
+            <el-input v-model="form.vessel" placeholder="请输入船名"></el-input>
+          </el-form-item>
+          <el-form-item label="船次 / Voy.No." required>
+            <el-input v-model="form.voyage" placeholder="请输入船次"></el-input>
+          </el-form-item>
+
+          <el-form-item label="原产国" required>
+            <el-input v-model="form.origin_country" placeholder="CN"></el-input>
+          </el-form-item>
+          <el-form-item label="目的国家" required>
+            <el-input v-model="form.dest_country" placeholder="US"></el-input>
+          </el-form-item>
+
+          <!-- ⚠️ 始发港用独立的字典类型 origin_port，不与下面三个目的港共用。
+               原因：始发港是「中国出运港」，目的港/卸货港/清关港是「美国目的港」，
+               两套数据完全不相交，混在一个下拉里会互相干扰（见 部署说明.md）。 -->
+          <el-form-item label="始发港 / Port of Loading" required>
+            <el-select v-model="form.port_of_loading" filterable allow-create clearable placeholder="请选择或输入" style="width:100%">
+              <el-option v-for="o in dict('origin_port')" :key="o.value" :label="o.label" :value="o.value"></el-option>
+            </el-select>
+          </el-form-item>
+          <el-form-item label="卸货港 / Port of Discharge" required>
+            <el-select v-model="form.port_of_discharge" filterable allow-create clearable placeholder="请选择或输入" style="width:100%">
+              <el-option v-for="o in dict('port')" :key="o.value" :label="o.label" :value="o.value"></el-option>
+            </el-select>
+          </el-form-item>
+
+          <el-form-item label="目的港 / Place of Delivery" required>
+            <el-select v-model="form.port_of_delivery" filterable allow-create clearable placeholder="请选择或输入" style="width:100%">
+              <el-option v-for="o in dict('port')" :key="o.value" :label="o.label" :value="o.value"></el-option>
+            </el-select>
+          </el-form-item>
+          <el-form-item label="清关港" required>
+            <el-select v-model="form.customs_port" filterable allow-create clearable placeholder="请选择或输入" style="width:100%">
+              <el-option v-for="o in dict('port')" :key="o.value" :label="o.label" :value="o.value"></el-option>
+            </el-select>
+          </el-form-item>
+
+          <el-form-item label="ETD" required>
+            <el-date-picker v-model="form.etd" type="date" value-format="YYYY-MM-DD" placeholder="预计开船日" style="width:100%"></el-date-picker>
+          </el-form-item>
+          <el-form-item label="ETA" required>
+            <el-date-picker v-model="form.eta" type="date" value-format="YYYY-MM-DD" placeholder="预计到港日" style="width:100%"></el-date-picker>
+          </el-form-item>
+        </div>
+      </el-form>
+
+      <!-- 报价方案 -->
+      <div class="section-bar">
+        <span>报价方案 <span style="color:#d1493f">*</span></span>
+        <div class="spacer"></div>
+        <span class="muted" style="font-size:12.5px;font-weight:400">点击卡片选中；金额可在下方手工调整</span>
+      </div>
+      <div class="plan-grid" v-if="opts.plans.length">
+        <div class="plan-card" v-for="p in opts.plans" :key="p.id"
+             :class="{ active: Number(form.plan_id) === p.id }" @click="pickPlan(p)">
+          <div class="pn">方案名称：{{ p.plan_name }}</div>
+          <div class="pr"><span class="k">方案金额</span><span class="v money">{{ planMoney(p) }}</span></div>
+          <div class="pr"><span class="k">适用港口</span><span class="v">{{ p.applicable_port || '—' }}</span></div>
+          <div class="pr"><span class="k">方案介绍</span><span class="v">{{ p.intro || '—' }}</span></div>
+          <div class="pr" v-if="p.notice"><span class="k">注意事项</span><span class="v notice" :class="{ clamp: !noticeOpen[p.id] }">{{ p.notice }}</span></div>
+          <div class="pr" v-else><span class="k">注意事项</span><span class="v">—</span></div>
+          <div class="more" v-if="p.notice">
+            <span class="link" @click.stop="toggleNotice(p.id)">{{ noticeOpen[p.id] ? '收起' : '展开' }}</span>
+          </div>
+        </div>
+      </div>
+      <div class="empty-holder" v-else>
+        还没有报价方案。请先到「系统设置 → 报价方案」录入方案后再创建订单。
+      </div>
+
+      <el-form label-width="150px" style="margin-top:16px">
+        <div class="basic-grid">
+          <el-form-item label="本单报价">
+            <el-input v-model="form.plan_amount" placeholder="按方案金额自动带入，可手工调整" @input="amountTouched = true"></el-input>
+          </el-form-item>
+          <el-form-item label="实收费用">
+            <el-input v-model="form.actual_fee" placeholder="0.00"></el-input>
+          </el-form-item>
+        </div>
+      </el-form>
+
+      <!-- 备注 -->
+      <div class="section-bar"><span>备注</span></div>
+      <el-form label-width="150px">
+        <el-form-item label="备注">
+          <el-input v-model="form.remark" type="textarea" :rows="3" placeholder="内部备注，客户可见备注请填在订单详情中"></el-input>
+        </el-form-item>
+      </el-form>
+
+      <!-- 文件上传 -->
+      <div class="section-bar">
+        <span>文件上传</span>
+        <div class="spacer"></div>
+        <span class="muted" style="font-size:12.5px;font-weight:400">支持 jpg / png / pdf / word / excel / zip / rar / txt，单个不超过 {{ maxMb }} MB</span>
+      </div>
+      <div class="up-row">
+        <el-select v-model="fileType" placeholder="文件类型" style="width:200px">
+          <el-option v-for="o in dict('file_type')" :key="o.value" :label="o.label" :value="o.value"></el-option>
+        </el-select>
+        <el-upload :auto-upload="false" :show-file-list="false" multiple :on-change="onFileChange" :disabled="uploading">
+          <el-button :loading="uploading">选择文件</el-button>
+        </el-upload>
+        <span class="muted" style="font-size:12.5px">可连续选择多个文件</span>
+      </div>
+      <el-table :data="files" border size="small">
+        <el-table-column type="index" label="#" width="52" align="center"></el-table-column>
+        <el-table-column label="文件类型" width="140">
+          <template #default="{ row }">{{ row.file_type || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="文件名" min-width="260">
+          <template #default="{ row }"><a :href="fileUrl(row)" target="_blank">{{ row.file_name }}</a></template>
+        </el-table-column>
+        <el-table-column label="大小" width="110">
+          <template #default="{ row }">{{ $qg.fileSize(row.file_size) }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="110">
+          <template #default="{ row }">
+            <el-tag v-if="row.id" type="success" size="small" disable-transitions>已关联</el-tag>
+            <el-tag v-else type="info" size="small" disable-transitions>待保存</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="90" align="center">
+          <template #default="{ row, $index }">
+            <span class="link" @click="removeFile(row, $index)">删除</span>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div class="empty-holder" v-if="!files.length">暂无附件</div>
+
+      <!-- 柜子信息 -->
+      <div class="section-bar">
+        <span>柜子信息</span>
+        <div class="spacer"></div>
+        <el-button size="small" @click="addContainer">添加柜子</el-button>
+      </div>
+      <el-table :data="form.containers" border size="small" class="mini-table">
+        <el-table-column label="柜号 / Container No." min-width="180">
+          <template #default="{ row }"><el-input v-model="row.container_no" placeholder="如 MSKU1234567"></el-input></template>
+        </el-table-column>
+        <el-table-column label="柜型" width="130">
+          <template #default="{ row }">
+            <el-select v-model="row.container_type" filterable allow-create clearable placeholder="柜型" style="width:100%" @change="onContainerType(row)">
+              <el-option v-for="o in dict('container_type')" :key="o.value" :label="o.label" :value="o.value"></el-option>
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="重量 / Gross Weight" width="170">
+          <template #default="{ row }">
+            <el-input-number v-model="row.gross_weight" :min="0" :precision="2" :step="0.01" :controls="false" placeholder="0.00" style="width:100%"></el-input-number>
+          </template>
+        </el-table-column>
+        <el-table-column label="箱数 / No.of Pkgs." width="160">
+          <template #default="{ row }">
+            <el-input-number v-model="row.packages" :min="0" :precision="0" :step="1" :controls="false" placeholder="0" style="width:100%"></el-input-number>
+          </template>
+        </el-table-column>
+        <el-table-column label="方数 / CBM" width="140">
+          <template #default="{ row }">
+            <el-input-number v-model="row.cbm" :min="0" :precision="2" :step="0.01" :controls="false" placeholder="0.00" style="width:100%"></el-input-number>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="80" align="center">
+          <template #default="{ $index }">
+            <span class="link" @click="form.containers.splice($index, 1)">删除</span>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div class="empty-holder" v-if="!form.containers.length">暂无柜子，点击「添加柜子」录入</div>
+
+      <!-- HS CODE -->
+      <div class="section-bar">
+        <span>HS CODE（ISF 申报用）</span>
+        <div class="spacer"></div>
+        <el-button size="small" @click="addHs">添加一行</el-button>
+      </div>
+      <el-table :data="form.hscodes" border size="small" class="mini-table">
+        <el-table-column label="HS CODE" min-width="240">
+          <template #default="{ row }"><el-input v-model="row.hs_code" placeholder="如 6109.10.00"></el-input></template>
+        </el-table-column>
+        <el-table-column label="原产国" width="220">
+          <template #default="{ row }">
+            <el-select v-model="row.origin_country" filterable allow-create clearable placeholder="请选择或输入" style="width:100%">
+              <el-option v-for="o in dict('origin_country')" :key="o.value" :label="o.label" :value="o.value"></el-option>
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="80" align="center">
+          <template #default="{ $index }">
+            <span class="link" @click="form.hscodes.splice($index, 1)">删除</span>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div class="empty-holder" v-if="!form.hscodes.length">暂无 HS CODE，点击「添加一行」录入</div>
+
+      <!-- 抬头信息 -->
+      <div class="section-bar"><span>抬头信息</span></div>
+      <div class="addr-grid">
+        <div class="addr-card" v-for="a in form.addresses" :key="a.addr_type">
+          <h4>{{ addrTitle[a.addr_type] }}</h4>
+          <el-form label-width="72px" label-position="right">
+            <el-form-item label="引用抬头">
+              <el-select v-model="a.source_id" filterable clearable placeholder="选择后自动带出" style="width:100%"
+                :empty-text="addrEmptyText(a.addr_type)" @change="id => fillAddr(a, id)">
+                <el-option v-for="c in addrSource(a.addr_type)" :key="c.id" :label="c.company_name" :value="c.id"></el-option>
+              </el-select>
+            </el-form-item>
+            <el-form-item label="公司"><el-input v-model="a.company"></el-input></el-form-item>
+            <el-form-item label="国家"><el-input v-model="a.country"></el-input></el-form-item>
+            <el-form-item label="州 / 省"><el-input v-model="a.state_province"></el-input></el-form-item>
+            <el-form-item label="城市"><el-input v-model="a.city"></el-input></el-form-item>
+            <el-form-item label="邮编"><el-input v-model="a.zip_code"></el-input></el-form-item>
+            <el-form-item label="地址"><el-input v-model="a.address"></el-input></el-form-item>
+            <el-form-item label="电话"><el-input v-model="a.phone"></el-input></el-form-item>
+          </el-form>
+        </div>
+      </div>
+
+    </div>
+    <template #footer>
+      <el-button @click="dlg = false">取消</el-button>
+      <el-button type="primary" :loading="saving" @click="submit">提交</el-button>
+    </template>
+  </el-dialog>
+</div>
+
+</div>
+
+<script src="/assets/vendor/vue.global.prod.js"></script>
+<script src="/assets/vendor/element-plus.full.min.js"></script>
+<script src="/assets/vendor/icons.iife.min.js"></script>
+<script src="/assets/js/common.js"></script>
+<script>
+/* 来源模块 → 「创建新订单」权限码。
+   ⚠️ 必须与后端 OrderController::CREATE_PERMS 保持一致（权限节点见 db/upgrade-2026-09-21b.sql）：
+   从哪个订单列表页点「创建」跳过来（?from=xxx），就校验哪个权限；
+   直接打开本页（没有 ?from=）按「创建订单」页的权限算。 */
+var CREATE_PERMS = {
+  create:  'order.create.new',
+  isf:     'order.isf.new',
+  customs: 'order.customs.new',
+  pickup:  'order.pickup.new',
+  inspect: 'order.inspect.new'
+};
+
+QG.mount(function () {
+  return {
+    data: function () {
+      var m = new RegExp('[?&]from=([^&]+)').exec(location.search);
+      var from = m ? decodeURIComponent(m[1]) : 'create';
+      return {
+        opts: { dict: {}, importers: [], shippers: [], plans: [], __error: null },
+        amountTouched: false,
+        noticeOpen: {},   /* 弹窗内方案卡的「注意事项」展开状态 */
+        tileOpen: {},     /* 页面右侧方案卡的展开状态（与弹窗各管各的，避免互相牵连） */
+        maxMb: 50,
+        dlg: false, saving: false, uploading: false,
+        fileType: '',
+        files: [],
+        recent: [], loading: false,
+        addrTitle: { 1: 'Shipper 发货人', 2: 'Consignee 收货人（同进口商）', 3: 'Notify party 通知方（同进口商）' },
+        /* 「申报ISF+清关流程」入口卡的权限：fromModule 来自列表页跳转，createPerm 是本页要校验的权限码；
+           canCreate 默认 false（权限拉回来之前先置灰），created 里拿到 /auth/me 再放开。 */
+        fromModule: from,
+        createPerm: CREATE_PERMS[from] || CREATE_PERMS.create,
+        canCreate: false,
+        form: this.emptyForm()
+      };
+    },
+    created: function () {
+      var self = this;
+      /* 系统设置里改了报价方案 / 抬头，或外壳切回本标签时 → 拉最新数据并回填 */
+      QG.onOptsChange(function (o) { self.opts = o; self.syncPlanAmount(); });
+      QG.options().then(function (o) { self.opts = o; });
+      this.loadRecent();
+      /* 拉当前账号权限 → 决定「申报ISF+清关流程」入口卡能不能点。
+         ⚠️ 必须异步：QG.can() 读的是本 iframe 的 window.QG_USER，QG.mount 不会自动加载它，
+         data() 阶段直接判断会一律返回 false。 */
+      QG.me().then(function () { self.canCreate = QG.can(self.createPerm); }).catch(function () {});
+      /* 列表页「编辑订单」跳过来：order-create.html?id=123 */
+      var id = this.query('id');
+      if (id) this.openEdit({ id: Number(id) });
+    },
+    methods: {
+      dict: function (type) { return QG.dictList(type); },
+      query: function (k) {
+        var m = new RegExp('[?&]' + k + '=([^&]+)').exec(location.search);
+        return m ? decodeURIComponent(m[1]) : '';
+      },
+      /**
+       * 表单字段清单。与原系统「新增海运提单」一致：16 个可见字段。
+       * 其中 customer_no / customer_order_no / route_type / biz_type / customer_remark
+       * 以及 customs_status / match_status / is_verified / release_date / inspect_type /
+       * inspect_abnormal 不渲染输入框，但要留在表单里跟着提交 —— 后端 update 是整行覆盖，
+       * 少传哪个字段就会把那个字段清空（例如编辑一次订单把「清关状态」重置成已预报）。
+       */
+      emptyForm: function () {
+        return {
+          id: null,
+          /* 可见字段（16） */
+          mbl_no: '', hbl_no: '', carrier: '', importer_id: null, vessel: '', voyage: '',
+          origin_country: 'CN', dest_country: 'US',
+          port_of_loading: '', port_of_discharge: '', port_of_delivery: '', customs_port: '',
+          etd: '', eta: '', isf_flag: 1, pickup_flag: 0,
+          plan_id: null, plan_amount: '', actual_fee: '', remark: '',
+          /* 隐藏但需原样回传的字段 */
+          customer_no: '', customer_order_no: '', route_type: '', biz_type: '', customer_remark: '',
+          customs_status: 'forecast', match_status: 0, is_verified: 0,
+          release_date: '', inspect_type: '', inspect_abnormal: '',
+          container_type: '', container_weight: '',
+          containers: [], hscodes: [],
+          addresses: [
+            { addr_type: 1, source_id: null, company: '', country: '', state_province: '', city: '', zip_code: '', address: '', phone: '' },
+            { addr_type: 2, source_id: null, company: '', country: '', state_province: '', city: '', zip_code: '', address: '', phone: '' },
+            { addr_type: 3, source_id: null, company: '', country: '', state_province: '', city: '', zip_code: '', address: '', phone: '' }
+          ]
+        };
+      },
+      planMoney: function (p) {
+        var a = p.amount;
+        if (a === null || a === undefined || a === '') return '待录入';
+        return '$' + QG.money(a);
+      },
+      toggleNotice: function (id) { this.noticeOpen[id] = !this.noticeOpen[id]; },
+      toggleTile: function (id) { this.tileOpen[id] = !this.tileOpen[id]; },
+      goList: function () { location.href = 'order-customs.html'; },
+
+      /* ---------- 最近创建 ---------- */
+      loadRecent: function () {
+        var self = this;
+        self.loading = true;
+        QG.get('/orders', { page: 1, pageSize: 10, sortBy: 'o.created_at', sortDir: 'desc' })
+          .then(function (d) { self.recent = (d && d.list) || []; })
+          .catch(function (e) { QG.err(e); })
+          .finally(function () { self.loading = false; });
+      },
+
+      /* ---------- 打开弹窗 ---------- */
+      openCreate: function () {
+        if (!this.canCreate) { return QG.warn('没有创建订单的权限，请联系管理员开通'); }
+        this.form = this.emptyForm();
+        this.amountTouched = false;
+        this.noticeOpen = {};
+        this.files = [];
+        this.fileType = (this.dict('file_type')[0] || {}).value || '';
+        this.dlg = true;
+      },
+      /**
+       * 点右侧「当前报价方案」里的某张卡 → 建单并预选该方案（比开弹窗再选少一步）。
+       * 没权限时 openCreate() 只提示、dlg 保持 false，这里就不再往新建表单里塞方案。
+       */
+      createWith: function (p) {
+        this.openCreate();
+        if (this.dlg) this.pickPlan(p);
+      },
+      openEdit: function (row) {
+        var self = this;
+        self.form = self.emptyForm();
+        self.amountTouched = true;   /* 编辑已有订单：报价以单子存的为准 */
+        self.noticeOpen = {};
+        self.files = [];
+        self.fileType = (self.dict('file_type')[0] || {}).value || '';
+        self.dlg = true;
+        self.loadOrder(row.id);
+      },
+      loadOrder: function (id) {
+        var self = this;
+        QG.get('/orders/' + id).then(function (d) {
+          var f = self.emptyForm();
+          Object.keys(f).forEach(function (k) {
+            if (k === 'addresses' || k === 'containers' || k === 'hscodes') return;
+            if (d[k] !== undefined && d[k] !== null) f[k] = d[k];
+          });
+          f.id = d.id;
+          f.plan_amount = d.plan_amount === null ? '' : d.plan_amount;
+          f.actual_fee = d.actual_fee === null ? '' : d.actual_fee;
+          f.isf_flag = Number(d.isf_flag);
+          f.pickup_flag = Number(d.pickup_flag);
+          f.containers = (d.containers || []).map(function (c) {
+            return {
+              id: c.id, container_no: c.container_no || '', container_type: c.container_type || '',
+              gross_weight: numOrNull(c.gross_weight), packages: numOrNull(c.packages), cbm: numOrNull(c.cbm)
+            };
+          });
+          f.hscodes = (d.hscodes || []).map(function (h) { return { id: h.id, hs_code: h.hs_code, origin_country: h.origin_country }; });
+          (d.addresses || []).forEach(function (a) {
+            var idx = Number(a.addr_type) - 1;
+            if (idx >= 0 && idx < 3) {
+              f.addresses[idx] = {
+                addr_type: Number(a.addr_type), source_id: a.source_id || null, company: a.company || '',
+                country: a.country || '', state_province: a.state_province || '', city: a.city || '',
+                zip_code: a.zip_code || '', address: a.address || '', phone: a.phone || ''
+              };
+            }
+          });
+          f.plan_id = d.plan_id ? Number(d.plan_id) : null;
+          self.form = f;
+          self.files = (d.files || []).map(function (x) {
+            return { id: x.id, file_type: x.file_type, file_name: x.file_name, file_path: x.file_path, file_size: x.file_size };
+          });
+          self.fileType = self.fileType || (self.dict('file_type')[0] || {}).value || '';
+        }).catch(function (e) {
+          QG.err(e);
+          self.dlg = false;
+        });
+      },
+
+      /**
+       * 选择报价方案。
+       * 切换方案时把「本单报价」同步为该方案的金额（覆盖原值，可再手工调整）；
+       * 重复点击当前已选方案则不动，免得把手工调过的报价冲掉。
+       */
+      pickPlan: function (p) {
+        var pid = Number(p.id);
+        if (Number(this.form.plan_id) === pid) return;
+        this.form.plan_id = pid;
+        this.amountTouched = false;
+        var amt = p.amount;
+        if (amt === null || amt === undefined || amt === '') {
+          this.form.plan_amount = '';
+          QG.warn('方案「' + p.plan_name + '」未录入金额，请手工填写本单报价');
+        } else {
+          this.form.plan_amount = amt;
+        }
+      },
+      /**
+       * 方案数据被刷新后，把「本单报价」跟到该方案的最新金额。
+       * 只在用户没手工改过（amountTouched=false）时生效，避免冲掉人工报价。
+       */
+      syncPlanAmount: function () {
+        if (this.amountTouched) return;
+        var pid = Number(this.form.plan_id);
+        if (!pid) return;
+        var p = (this.opts.plans || []).filter(function (x) { return Number(x.id) === pid; })[0];
+        if (!p) return;
+        var amt = p.amount;
+        this.form.plan_amount = (amt === null || amt === undefined || amt === '') ? '' : amt;
+      },
+      onImporterChange: function (id) {
+        var imp = (this.opts.importers || []).filter(function (x) { return Number(x.id) === Number(id); })[0];
+        if (!imp) return;
+        var self = this;
+        [1, 2].forEach(function (i) {
+          var a = self.form.addresses[i];
+          if (a && !a.company) self.fillAddr(a, id, true);
+        });
+      },
+      addrSource: function (type) {
+        return Number(type) === 1 ? (this.opts.shippers || []) : (this.opts.importers || []);
+      },
+      /* 下拉空时给人话提示：区分「接口没拉到」和「确实没数据」，别让人对着空白框猜 */
+      addrEmptyText: function (type) {
+        if (this.opts.__error) return '下拉数据加载失败：' + this.opts.__error + '（请 Ctrl+F5 强刷）';
+        return Number(type) === 1
+          ? '没有可引用的发货人 —— 请到「抬头管理 → 发货人管理」录入，并确保状态为「已启用」'
+          : '没有可引用的进口商 —— 请到「抬头管理 → 进口商管理」录入，并确保状态为「已启用」';
+      },
+      fillAddr: function (a, id, force) {
+        if (!id) return;
+        var list = this.addrSource(a.addr_type);
+        var c = list.filter(function (x) { return x.id === id; })[0];
+        if (!c) return;
+        if (force || !a.company) a.company = c.company_name || '';
+        a.country = c.country || a.country;
+        a.state_province = c.state_province || a.state_province;
+        a.city = c.city || a.city;
+        a.zip_code = c.zip_code || a.zip_code;
+        a.address = c.address || a.address;
+        a.phone = c.phone || a.phone;
+        a.source_id = id;
+      },
+      onContainerType: function (row) { row.container_type = row.container_type || ''; },
+      addContainer: function () {
+        var first = (this.dict('container_type')[0] || {}).value || '';
+        this.form.containers.push({ container_no: '', container_type: first, gross_weight: null, packages: null, cbm: null });
+      },
+      addHs: function () {
+        this.form.hscodes.push({ hs_code: '', origin_country: this.form.origin_country || 'CN' });
+      },
+
+      /* ---------- 附件 ---------- */
+      onFileChange: function (up) {
+        var self = this;
+        if (!up || !up.raw) return;
+        if (!self.fileType) return QG.warn('请先选择文件类型');
+        self.uploading = true;
+        QG.upload(up.raw).then(function (res) {
+          var item = { file_type: self.fileType, file_name: res.file_name, file_path: res.file_path, file_size: res.file_size };
+          if (self.form.id) {
+            return QG.post('/files', Object.assign({ order_id: self.form.id }, item)).then(function (r) {
+              item.id = r.id;
+              self.files.push(item);
+              QG.toast('已上传并关联');
+            });
+          }
+          self.files.push(item);
+          QG.toast('已上传，保存订单后自动关联');
+        }).catch(function (e) { QG.err(e); })
+          .finally(function () { self.uploading = false; });
+      },
+      fileUrl: function (row) { return '/uploads/' + String(row.file_path || '').replace(/^\/+/, ''); },
+      removeFile: function (row, idx) {
+        var self = this;
+        var doDel = row.id
+          ? QG.confirm('确定删除该附件吗？', '删除确认').then(function () { return QG.del('/files/' + row.id); })
+          : Promise.resolve();
+        doDel.then(function () {
+          self.files.splice(idx, 1);
+          QG.toast('已删除');
+        }).catch(function (e) { if (e && e.message && e.message !== 'cancel') QG.err(e); });
+      },
+
+      /* ---------- 提交 ---------- */
+      submit: function () {
+        var f = this.form;
+        if (!f.mbl_no) return QG.warn('请填写主提单号 / MBL');
+        if (!f.carrier) return QG.warn('请选择船司');
+        if (!f.importer_id) return QG.warn('请选择进口商 / BOND');
+        if (!f.vessel) return QG.warn('请填写船名 / Ocean Vessel');
+        if (!f.voyage) return QG.warn('请填写船次 / Voy.No.');
+        if (!f.origin_country) return QG.warn('请填写原产国');
+        if (!f.dest_country) return QG.warn('请填写目的国家');
+        if (!f.port_of_loading || !f.port_of_discharge || !f.port_of_delivery || !f.customs_port) {
+          return QG.warn('请填写始发港 / 卸货港 / 目的港 / 清关港');
+        }
+        if (!f.etd || !f.eta) return QG.warn('请填写 ETD / ETA');
+        if (!f.plan_id) return QG.warn('请选择报价方案');
+
+        var self = this;
+        var payload = JSON.parse(JSON.stringify(f));
+        delete payload.id;
+        /* 来源模块：后端据此判定该用哪个「创建新订单」权限（见 OrderController::store()）；
+           编辑已有订单时后端不校验它，带上不影响（payload() 不收录该字段，不会入库）。 */
+        payload.from_module = self.fromModule || 'create';
+        payload.origin_country = payload.origin_country || 'CN';
+        payload.dest_country = payload.dest_country || 'US';
+        /* 柜型 / 柜重取第一行柜子，供列表页展示 */
+        var c0 = f.containers[0] || {};
+        payload.container_type = c0.container_type || '';
+        payload.container_weight = (c0.gross_weight === null || c0.gross_weight === undefined) ? '' : c0.gross_weight;
+        /* el-input-number 清空后是 null，后端按 '' 判空 */
+        payload.containers = (f.containers || []).map(function (c) {
+          return {
+            container_no: c.container_no || '',
+            container_type: c.container_type || '',
+            gross_weight: c.gross_weight === null || c.gross_weight === undefined ? '' : c.gross_weight,
+            packages: c.packages === null || c.packages === undefined ? '' : c.packages,
+            cbm: c.cbm === null || c.cbm === undefined ? '' : c.cbm
+          };
+        });
+
+        self.saving = true;
+        var req = f.id ? QG.put('/orders/' + f.id, payload) : QG.post('/orders', payload);
+        req.then(function (res) {
+          var oid = f.id || (res && res.id);
+          var pend = self.files.filter(function (x) { return !x.id; });
+          var chain = Promise.resolve();
+          if (oid && pend.length) {
+            chain = Promise.all(pend.map(function (x) {
+              return QG.post('/files', {
+                order_id: oid, file_type: x.file_type,
+                file_name: x.file_name, file_path: x.file_path, file_size: x.file_size
+              });
+            }));
+          }
+          return chain.then(function () {
+            QG.toast(f.id ? '已保存' : '提交成功');
+            self.dlg = false;
+            self.loadRecent();
+          });
+        }).catch(function (e) { QG.err(e); })
+          .finally(function () { self.saving = false; });
+      }
+    }
+  };
+
+  /* 后端 DECIMAL 回来可能是字符串 '' 或 null，统一成 number|null 给 el-input-number */
+  function numOrNull(v) {
+    if (v === null || v === undefined || v === '') return null;
+    var n = Number(v);
+    return isNaN(n) ? null : n;
+  }
+});
+</script>
+</body>
+</html>

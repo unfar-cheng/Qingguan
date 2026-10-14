@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>账户余额 · 清关管理系统</title>
+<link rel="icon" href="/favicon.ico">
+<link rel="stylesheet" href="/assets/vendor/element-plus.css">
+<link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+<div id="app" v-cloak>
+
+<div class="page">
+  <div class="page-head">
+    <div class="spacer"></div>
+    <el-button @click="search()">刷新</el-button>
+  </div>
+
+  <div class="filter-bar">
+    <div class="fi"><label>公司名称</label>
+      <el-input v-model="q.keyword" clearable placeholder="进口商公司名称" @keyup.enter="search(true)"></el-input>
+    </div>
+    <div class="acts">
+      <el-button type="primary" @click="search(true)">查询</el-button>
+      <el-button @click="doReset">重置</el-button>
+    </div>
+  </div>
+
+  <div class="stat-grid" style="margin-bottom:16px">
+    <div class="stat-card"><div class="lbl">客户数</div><div class="num blue">{{ total }}</div></div>
+    <div class="stat-card"><div class="lbl">账户总余额</div><div class="num green">{{ $qg.money(sum.balance) }}</div></div>
+    <div class="stat-card"><div class="lbl">累计充值</div><div class="num">{{ $qg.money(sum.recharge) }}</div></div>
+    <div class="stat-card"><div class="lbl">累计应付</div><div class="num orange">{{ $qg.money(sum.payable) }}</div></div>
+  </div>
+
+  <div class="table-card">
+    <el-table :data="rows" v-loading="loading" border stripe size="small" :max-height="560">
+      <el-table-column type="index" label="#" width="52" align="center"></el-table-column>
+      <el-table-column prop="company_name" label="公司" min-width="240" show-overflow-tooltip></el-table-column>
+      <el-table-column prop="country" label="国家" width="80"></el-table-column>
+      <el-table-column prop="city" label="城市" width="130" show-overflow-tooltip></el-table-column>
+      <el-table-column label="账户余额" width="140" align="right">
+        <template #default="{ row }"><b :style="{color: Number(row.balance) < 0 ? '#d1493f' : '#2f9e63'}">{{ $qg.money(row.balance) }}</b></template>
+      </el-table-column>
+      <el-table-column label="冻结金额" width="120" align="right">
+        <template #default="{ row }">{{ $qg.money(row.frozen) }}</template>
+      </el-table-column>
+      <el-table-column label="累计充值" width="130" align="right">
+        <template #default="{ row }">{{ $qg.money(row.total_recharge) }}</template>
+      </el-table-column>
+      <el-table-column label="累计应付" width="130" align="right">
+        <template #default="{ row }">{{ $qg.money(row.total_payable) }}</template>
+      </el-table-column>
+      <el-table-column label="更新时间" width="150">
+        <template #default="{ row }">{{ $qg.dateTime(row.updated_at) }}</template>
+      </el-table-column>
+      <el-table-column label="操作" width="170" align="center" fixed="right">
+        <template #default="{ row }">
+          <span v-if="!Number(row.account_id)" class="link" @click="openAccount(row)">开户</span>
+          <span v-else class="link" @click="openAdjust(row)">调整余额</span>
+          <el-divider direction="vertical"></el-divider>
+          <span class="link" @click="goRecharge(row)">充值记录</span>
+        </template>
+      </el-table-column>
+    </el-table>
+
+    <div style="display:flex;justify-content:flex-end;margin-top:12px">
+      <el-pagination v-model:current-page="q.page" v-model:page-size="q.pageSize" :total="total"
+        :page-sizes="[20,50,100,200]" background layout="total, sizes, prev, pager, next, jumper"
+        @current-change="pageChange" @size-change="sizeChange"></el-pagination>
+    </div>
+  </div>
+
+  <!-- 开户 -->
+  <el-dialog v-model="accVisible" title="开通账户" width="420px">
+    <el-form label-width="90px">
+      <el-form-item label="公司"><b>{{ cur.company_name }}</b></el-form-item>
+      <el-form-item label="初始余额"><el-input v-model="accForm.balance" placeholder="0.00"></el-input></el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="accVisible = false">取消</el-button>
+      <el-button type="primary" :loading="saving" @click="submitAccount">确定开户</el-button>
+    </template>
+  </el-dialog>
+
+  <!-- 调整余额 -->
+  <el-dialog v-model="adjVisible" title="调整余额" width="440px">
+    <el-form label-width="90px">
+      <el-form-item label="公司"><b>{{ cur.company_name }}</b></el-form-item>
+      <el-form-item label="当前余额"><b>{{ $qg.money(cur.balance) }}</b></el-form-item>
+      <el-form-item label="调整金额">
+        <el-input v-model="adjForm.amount" placeholder="正数增加 / 负数减少，如 -500"></el-input>
+      </el-form-item>
+      <el-form-item label="调整后">
+        <b :style="{color: afterAdjust < 0 ? '#d1493f' : '#2f9e63'}">{{ $qg.money(afterAdjust) }}</b>
+      </el-form-item>
+      <el-form-item label="备注"><el-input v-model="adjForm.remark" type="textarea" :rows="2"></el-input></el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="adjVisible = false">取消</el-button>
+      <el-button type="primary" :loading="saving" @click="submitAdjust">确定</el-button>
+    </template>
+  </el-dialog>
+</div>
+
+</div>
+
+<script src="/assets/vendor/vue.global.prod.js"></script>
+<script src="/assets/vendor/element-plus.full.min.js"></script>
+<script src="/assets/vendor/icons.iife.min.js"></script>
+<script src="/assets/js/common.js"></script>
+<script>
+QG.mount(function () {
+  var base = QG.listPage({ base: '/finance/accounts', query: {}, noOpts: true });
+  return Object.assign({}, base, {
+    data: function () {
+      var d = base.data.call(this);
+      d.cur = {};
+      d.accVisible = false; d.adjVisible = false;
+      d.accForm = { balance: '0' };
+      d.adjForm = { amount: '', remark: '' };
+      return d;
+    },
+    computed: {
+      sum: function () {
+        var b = 0, r = 0, p = 0;
+        this.rows.forEach(function (x) {
+          b += Number(x.balance) || 0; r += Number(x.total_recharge) || 0; p += Number(x.total_payable) || 0;
+        });
+        return { balance: b, recharge: r, payable: p };
+      },
+      afterAdjust: function () {
+        return (Number(this.cur.balance) || 0) + (Number(this.adjForm.amount) || 0);
+      }
+    },
+    methods: Object.assign({}, base.methods, {
+      doReset: function () { this.q.keyword = ''; this.reset(); },
+      openAccount: function (row) { this.cur = row; this.accForm = { balance: '0' }; this.accVisible = true; },
+      openAdjust: function (row) { this.cur = row; this.adjForm = { amount: '', remark: '' }; this.adjVisible = true; },
+      goRecharge: function (row) { location.href = 'fin-recharge.html?company_id=' + row.company_id; },
+      submitAccount: function () {
+        var self = this;
+        self.saving = true;
+        QG.post('/finance/accounts', { company_id: self.cur.company_id, balance: self.accForm.balance || 0 })
+          .then(function () { QG.toast('已开户'); self.accVisible = false; self.search(); })
+          .catch(function (e) { QG.err(e); })
+          .finally(function () { self.saving = false; });
+      },
+      submitAdjust: function () {
+        var self = this;
+        if (!self.adjForm.amount || Number(self.adjForm.amount) === 0) return QG.warn('调整金额不能为 0');
+        self.saving = true;
+        QG.post('/finance/accounts/' + self.cur.account_id + '/adjust', self.adjForm)
+          .then(function () { QG.toast('余额已调整'); self.adjVisible = false; self.search(); })
+          .catch(function (e) { QG.err(e); })
+          .finally(function () { self.saving = false; });
+      }
+    })
+  });
+});
+</script>
+</body>
+</html>

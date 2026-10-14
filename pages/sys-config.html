@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>收发信息 · 清关管理系统</title>
+<link rel="icon" href="/favicon.ico">
+<link rel="stylesheet" href="/assets/vendor/element-plus.css">
+<link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+<div id="app" v-cloak>
+
+<div class="page" v-loading="loading">
+  <div class="page-head">
+    <div class="muted" style="font-size:13px">配置公司信息、邮件与短信收发参数、系统默认项</div>
+    <div class="spacer"></div>
+    <el-button @click="load">还原</el-button>
+    <el-button type="primary" :loading="saving" @click="save">保存全部</el-button>
+  </div>
+
+  <div class="card">
+    <h3 class="card-title">企业信息</h3>
+    <el-form label-width="130px" style="max-width:680px">
+      <el-form-item label="公司名称"><el-input v-model="cfg['company.name']"></el-input></el-form-item>
+      <el-form-item label="联系电话"><el-input v-model="cfg['company.tel']"></el-input></el-form-item>
+      <el-form-item label="公司地址"><el-input v-model="cfg['company.address']"></el-input></el-form-item>
+    </el-form>
+  </div>
+
+  <div class="card">
+    <h3 class="card-title">邮件收发</h3>
+    <el-form label-width="130px" style="max-width:680px">
+      <el-form-item label="邮件服务器"><el-input v-model="cfg['mail.host']" placeholder="如 smtp.exmail.qq.com"></el-input></el-form-item>
+      <el-form-item label="端口"><el-input v-model="cfg['mail.port']" placeholder="465 / 587"></el-input></el-form-item>
+      <el-form-item label="发信账号"><el-input v-model="cfg['mail.user']" placeholder="完整邮箱地址"></el-input></el-form-item>
+      <el-form-item label="发信密码"><el-input v-model="cfg['mail.pass']" type="password" show-password placeholder="邮箱授权码"></el-input></el-form-item>
+      <el-form-item label="发件人名称"><el-input v-model="cfg['mail.from_name']"></el-input></el-form-item>
+      <el-form-item label="默认收件人">
+        <el-input v-model="cfg['mail.to']" placeholder="多个地址用英文逗号分隔"></el-input>
+      </el-form-item>
+      <el-alert type="info" :closable="false" show-icon
+        title="邮件用于放行、查验等节点通知客户。填好服务器与账号后，可在订单详情页手动触发通知。"></el-alert>
+    </el-form>
+  </div>
+
+  <div class="card">
+    <h3 class="card-title">短信收发</h3>
+    <el-form label-width="130px" style="max-width:680px">
+      <el-form-item label="短信通知">
+        <el-switch v-model="cfg['sms.enabled']" active-value="1" inactive-value="0"></el-switch>
+      </el-form-item>
+      <el-form-item label="短信签名"><el-input v-model="cfg['sms.sign']" placeholder="如 【鹏成运通】"></el-input></el-form-item>
+      <el-form-item label="通知节点">
+        <el-checkbox v-model="cfg['notify.on_release']" true-value="1" false-value="0">放行时通知客户</el-checkbox>
+        <el-checkbox v-model="cfg['notify.on_inspect']" true-value="1" false-value="0">查验时通知客户</el-checkbox>
+      </el-form-item>
+    </el-form>
+  </div>
+
+  <div class="card">
+    <h3 class="card-title">系统默认项</h3>
+    <el-form label-width="130px" style="max-width:680px">
+      <el-form-item label="列表每页条数"><el-input v-model="cfg['system.page_size']" placeholder="50"></el-input></el-form-item>
+      <el-form-item label="附件大小上限">
+        <el-input v-model="cfg['system.upload_max_mb']" placeholder="50">
+          <template #append>MB</template>
+        </el-input>
+      </el-form-item>
+      <el-form-item label="订单号前缀"><el-input v-model="cfg['system.order_no_prefix']" placeholder="QG"></el-input></el-form-item>
+      <el-form-item label="自动创建 ISF">
+        <el-switch v-model="cfg['system.auto_isf']" active-value="1" inactive-value="0"></el-switch>
+        <span class="muted" style="margin-left:10px;font-size:12.5px">开启后，勾选「申报 ISF」的订单提交时自动生成 ISF 记录</span>
+      </el-form-item>
+    </el-form>
+  </div>
+
+  <div class="sticky-foot">
+    <el-button @click="load">还原</el-button>
+    <el-button type="primary" :loading="saving" @click="save">保存全部</el-button>
+  </div>
+</div>
+
+</div>
+
+<script src="/assets/vendor/vue.global.prod.js"></script>
+<script src="/assets/vendor/element-plus.full.min.js"></script>
+<script src="/assets/vendor/icons.iife.min.js"></script>
+<script src="/assets/js/common.js"></script>
+<script>
+QG.mount(function () {
+  var KEYS = [
+    'company.name', 'company.tel', 'company.address',
+    'mail.host', 'mail.port', 'mail.user', 'mail.pass', 'mail.from_name', 'mail.to',
+    'sms.enabled', 'sms.sign', 'notify.on_release', 'notify.on_inspect',
+    'system.page_size', 'system.upload_max_mb', 'system.order_no_prefix', 'system.auto_isf'
+  ];
+  return {
+    data: function () {
+      var c = {};
+      KEYS.forEach(function (k) { c[k] = ''; });
+      return { cfg: c, loading: false, saving: false };
+    },
+    created: function () { this.load(); },
+    methods: {
+      load: function () {
+        var self = this;
+        self.loading = true;
+        QG.get('/configs').then(function (d) {
+          var map = (d && d.map) || {};
+          KEYS.forEach(function (k) {
+            if (map[k] !== undefined && map[k] !== null) self.cfg[k] = String(map[k]);
+          });
+        }).catch(function (e) { QG.err(e); })
+          .finally(function () { self.loading = false; });
+      },
+      save: function () {
+        var self = this;
+        self.saving = true;
+        QG.put('/configs', { configs: self.cfg })
+          .then(function () { QG.toast('已保存'); })
+          .catch(function (e) { QG.err(e); })
+          .finally(function () { self.saving = false; });
+      }
+    }
+  };
+});
+</script>
+</body>
+</html>

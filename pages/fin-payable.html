@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>应付账单 · 清关管理系统</title>
+<link rel="icon" href="/favicon.ico">
+<link rel="stylesheet" href="/assets/vendor/element-plus.css">
+<link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+<div id="app" v-cloak>
+
+<div class="page">
+  <div class="page-head">
+    <el-button class="btn-green" @click="openCreate()">新增账单</el-button>
+    <div class="spacer"></div>
+    <el-button @click="search()">刷新</el-button>
+  </div>
+
+  <div class="filter-bar">
+    <div class="fi"><label>公司</label>
+      <el-select v-model="q.company_id" filterable clearable placeholder="全部">
+        <el-option v-for="o in companies" :key="o.id" :label="o.company_name" :value="o.id"></el-option>
+      </el-select>
+    </div>
+    <div class="fi"><label>状态</label>
+      <el-select v-model="q.status" clearable placeholder="全部">
+        <el-option label="未付" :value="0"></el-option><el-option label="已付" :value="1"></el-option><el-option label="部分付" :value="2"></el-option>
+      </el-select>
+    </div>
+    <div class="fi"><label>账期</label>
+      <el-date-picker v-model="dueRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至"
+        start-placeholder="开始" end-placeholder="结束"></el-date-picker>
+    </div>
+    <div class="acts">
+      <el-button type="primary" @click="search(true)">查询</el-button>
+      <el-button @click="doReset">重置</el-button>
+    </div>
+  </div>
+
+  <div class="stat-grid" style="margin-bottom:16px">
+    <div class="stat-card"><div class="lbl">账单笔数</div><div class="num blue">{{ total }}</div></div>
+    <div class="stat-card"><div class="lbl">本页合计</div><div class="num">{{ $qg.money(sum.amount) }}</div></div>
+    <div class="stat-card"><div class="lbl">本页未付</div><div class="num red">{{ $qg.money(sum.unpaid) }}</div></div>
+    <div class="stat-card"><div class="lbl">本页已付</div><div class="num green">{{ $qg.money(sum.paid) }}</div></div>
+  </div>
+
+  <div class="table-card">
+    <el-table :data="rows" v-loading="loading" border stripe size="small" :max-height="540">
+      <el-table-column type="index" label="#" width="52" align="center"></el-table-column>
+      <el-table-column label="主提单号" width="150">
+        <template #default="{ row }">{{ row.mbl_no || '—' }}</template>
+      </el-table-column>
+      <el-table-column label="系统单号" width="150">
+        <template #default="{ row }">{{ row.order_no || '—' }}</template>
+      </el-table-column>
+      <el-table-column label="公司" min-width="200" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.company_name || '—' }}</template>
+      </el-table-column>
+      <el-table-column prop="fee_name" label="费用名称" min-width="150"></el-table-column>
+      <el-table-column label="金额" width="130" align="right">
+        <template #default="{ row }"><b>{{ row.currency === 'USD' ? '$' : '¥' }}{{ $qg.money(row.amount) }}</b></template>
+      </el-table-column>
+      <el-table-column prop="currency" label="币种" width="80" align="center"></el-table-column>
+      <el-table-column label="状态" width="90" align="center">
+        <template #default="{ row }">
+          <el-tag :type="['danger','success','warning'][Number(row.status)]" size="small" disable-transitions>{{ row.status_text }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="账期" width="110">
+        <template #default="{ row }">{{ $qg.date(row.due_date) }}</template>
+      </el-table-column>
+      <el-table-column label="付款时间" width="150">
+        <template #default="{ row }">{{ $qg.dateTime(row.paid_at) }}</template>
+      </el-table-column>
+      <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip></el-table-column>
+      <el-table-column label="操作" width="150" align="center" fixed="right">
+        <template #default="{ row }">
+          <span v-if="Number(row.status) !== 1" class="link" @click="pay(row, 1)">标记已付</span>
+          <span v-else class="link" @click="pay(row, 0)">撤销付款</span>
+          <el-divider direction="vertical"></el-divider>
+          <el-dropdown trigger="click" @command="c => rowCmd(c, row)">
+            <span class="link">更多<el-icon><ArrowDown /></el-icon></span>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="edit">编辑</el-dropdown-item>
+                <el-dropdown-item command="del" divided>删除</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </template>
+      </el-table-column>
+    </el-table>
+
+    <div style="display:flex;justify-content:flex-end;margin-top:12px">
+      <el-pagination v-model:current-page="q.page" v-model:page-size="q.pageSize" :total="total"
+        :page-sizes="[20,50,100,200]" background layout="total, sizes, prev, pager, next, jumper"
+        @current-change="pageChange" @size-change="sizeChange"></el-pagination>
+    </div>
+  </div>
+
+  <el-dialog v-model="dlg" :title="dlgTitle + '应付账单'" width="560px">
+    <el-form label-width="100px">
+      <el-form-item label="关联订单">
+        <el-select v-model="form.order_id" filterable remote clearable placeholder="输入提单号搜索"
+          :remote-method="searchOrders" :loading="orderLoading" style="width:100%">
+          <el-option v-for="o in orderOptions" :key="o.id" :label="o.mbl_no + ' · ' + (o.importer_name || '')" :value="o.id"></el-option>
+        </el-select>
+      </el-form-item>
+      <el-form-item label="公司">
+        <el-select v-model="form.company_id" filterable clearable placeholder="请选择" style="width:100%">
+          <el-option v-for="o in companies" :key="o.id" :label="o.company_name" :value="o.id"></el-option>
+        </el-select>
+      </el-form-item>
+      <el-form-item label="费用名称" required><el-input v-model="form.fee_name" placeholder="如 清关费 / 查验费 / 派送费"></el-input></el-form-item>
+      <el-form-item label="金额" required><el-input v-model="form.amount" placeholder="0.00"></el-input></el-form-item>
+      <el-form-item label="币种">
+        <el-radio-group v-model="form.currency">
+          <el-radio value="CNY">CNY 人民币</el-radio><el-radio value="USD">USD 美元</el-radio>
+        </el-radio-group>
+      </el-form-item>
+      <el-form-item label="账期">
+        <el-date-picker v-model="form.due_date" type="date" value-format="YYYY-MM-DD" style="width:100%"></el-date-picker>
+      </el-form-item>
+      <el-form-item label="付款状态">
+        <el-radio-group v-model="form.status">
+          <el-radio :value="0">未付</el-radio><el-radio :value="1">已付</el-radio><el-radio :value="2">部分付</el-radio>
+        </el-radio-group>
+      </el-form-item>
+      <el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="2"></el-input></el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="dlg = false">取消</el-button>
+      <el-button type="primary" :loading="saving" @click="save">确定</el-button>
+    </template>
+  </el-dialog>
+</div>
+
+</div>
+
+<script src="/assets/vendor/vue.global.prod.js"></script>
+<script src="/assets/vendor/element-plus.full.min.js"></script>
+<script src="/assets/vendor/icons.iife.min.js"></script>
+<script src="/assets/js/common.js"></script>
+<script>
+QG.mount(function () {
+  var base = QG.listPage({
+    base: '/finance/payables',
+    query: {},
+    buildForm: function (row) {
+      return row
+        ? {
+            order_id: row.order_id, company_id: row.company_id, fee_name: row.fee_name,
+            amount: row.amount, currency: row.currency, status: Number(row.status),
+            due_date: row.due_date ? String(row.due_date).slice(0, 10) : '', remark: row.remark
+          }
+        : { order_id: null, company_id: null, fee_name: '', amount: '', currency: 'CNY', status: 0, due_date: '', remark: '' };
+    },
+    beforeSave: function (f) {
+      if (!f.fee_name) { QG.warn('请填写费用名称'); return false; }
+      if (f.amount === '' || Number(f.amount) < 0) { QG.warn('请填写正确的金额'); return false; }
+      return f;
+    }
+  });
+  return Object.assign({}, base, {
+    data: function () {
+      var d = base.data.call(this);
+      d.dueRange = [];
+      d.orderOptions = [];
+      d.orderLoading = false;
+      return d;
+    },
+    computed: {
+      companies: function () {
+        return (this.opts.importers || []).concat(this.opts.shippers || []);
+      },
+      sum: function () {
+        var a = 0, u = 0, p = 0;
+        this.rows.forEach(function (x) {
+          var v = Number(x.amount) || 0;
+          a += v;
+          if (Number(x.status) === 1) p += v; else u += v;
+        });
+        return { amount: a, unpaid: u, paid: p };
+      }
+    },
+    watch: {
+      dueRange: function (v) { this.q.due_start = v && v[0] || ''; this.q.due_end = v && v[1] || ''; }
+    },
+    methods: Object.assign({}, base.methods, {
+      doReset: function () { this.dueRange = []; this.q.company_id = ''; this.q.status = ''; this.reset(); },
+      searchOrders: function (kw) {
+        var self = this;
+        self.orderLoading = true;
+        QG.get('/orders', { keyword: kw || '', pageSize: 50 }).then(function (d) {
+          self.orderOptions = (d && d.list) || [];
+        }).catch(function () {}).finally(function () { self.orderLoading = false; });
+      },
+      rowCmd: function (cmd, row) {
+        if (cmd === 'edit') this.openEdit(row);
+        if (cmd === 'del') this.remove(row, '', '确定删除该账单吗？');
+      },
+      pay: function (row, status) {
+        var self = this;
+        var txt = status === 1 ? '确认该笔账单已付款？' : '确认撤销付款标记？';
+        QG.confirm(txt, '付款确认').then(function () {
+          return QG.post('/finance/payables/' + row.id + '/pay', { status: status }).then(function () {
+            QG.toast('已更新');
+            self.search();
+          });
+        }).catch(function (e) { if (e && e.message && e.message !== 'cancel') QG.err(e); });
+      }
+    })
+  });
+});
+</script>
+</body>
+</html>

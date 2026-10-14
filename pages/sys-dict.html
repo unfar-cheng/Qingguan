@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>字典维护 · 清关管理系统</title>
+<link rel="icon" href="/favicon.ico">
+<link rel="stylesheet" href="/assets/vendor/element-plus.css">
+<link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+<div id="app" v-cloak>
+
+<div class="page">
+  <div class="page-head">
+    <el-button class="btn-green" @click="openNew()">新增字典项</el-button>
+    <div class="spacer"></div>
+    <el-tag type="info" size="small" disable-transitions>页面版本 {{ pageVersion }}</el-tag>
+    <el-button @click="search()">刷新</el-button>
+  </div>
+
+  <el-alert type="info" :closable="false" show-icon style="margin-bottom:14px"
+    title="这里维护页面上各下拉的选项，只能添加「有页面在读」的类型；显示不了的内容加不进来。改完立即生效，其它页面会自动刷新下拉。"
+    :description="usedHintText"></el-alert>
+
+  <div class="filter-bar">
+    <div class="fi"><label>字典类型</label>
+        <el-select v-model="q.type" clearable filterable placeholder="全部类型" style="width:220px" @change="search(true)">
+        <el-option v-for="t in typeOptions" :key="t" :label="typeOptionLabel(t)" :value="t"></el-option>
+      </el-select>
+    </div>
+    <div class="fi"><label>关键字</label>
+      <el-input v-model="keyword" clearable placeholder="键 / 值" style="width:200px"></el-input>
+    </div>
+    <div class="acts">
+      <el-button type="primary" @click="search(true)">查询</el-button>
+      <el-button @click="doReset">重置</el-button>
+    </div>
+  </div>
+
+  <div class="table-card">
+    <el-table :data="view" v-loading="loading" border stripe size="small" :max-height="620">
+      <el-table-column prop="sort" label="排序" width="70" align="center"></el-table-column>
+      <el-table-column label="字典类型" width="160">
+        <template #default="{ row }">
+          <span>{{ typeLabel(row.dict_type) }}</span>
+          <div class="muted" style="font-size:12px">{{ row.dict_type }}</div>
+        </template>
+      </el-table-column>
+      <el-table-column prop="dict_key" label="键 / Key" min-width="180" show-overflow-tooltip></el-table-column>
+      <el-table-column prop="dict_value" label="值 / 显示文本" min-width="220" show-overflow-tooltip></el-table-column>
+      <el-table-column label="用途（页面上哪个下拉在读它）" min-width="250">
+        <template #default="{ row }">
+          <span v-if="usageOf(row.dict_type)" style="color:#409eff">{{ usageOf(row.dict_type) }}</span>
+          <span v-else class="muted">未被界面使用 · 加了也不会出现下拉</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="状态" width="90" align="center">
+        <template #default="{ row }">
+          <el-tag :type="Number(row.status) === 1 ? 'success' : 'info'" size="small" disable-transitions>
+            {{ Number(row.status) === 1 ? '启用' : '停用' }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="150" align="center" fixed="right">
+        <template #default="{ row }">
+          <span class="link" @click="openEdit(row)">编辑</span>
+          <el-divider direction="vertical"></el-divider>
+          <span class="link" @click="toggle(row)">{{ Number(row.status) === 1 ? '停用' : '启用' }}</span>
+          <el-divider direction="vertical"></el-divider>
+          <span class="link" @click="remove(row, '', '确定删除字典项「' + row.dict_value + '」吗？删除后引用它的下拉会少这一项。')">删除</span>
+        </template>
+      </el-table-column>
+    </el-table>
+    <div class="empty-holder" v-if="!loading && !view.length">没有匹配的字典项</div>
+  </div>
+
+  <el-dialog v-model="dlg" :title="dlgTitle + '字典项'" width="560px">
+    <el-form label-width="100px">
+      <el-alert v-if="form.dict_type && usageOf(form.dict_type)" type="success" :closable="false" show-icon
+        style="margin-bottom:12px" :title="'会用在这里：' + usageOf(form.dict_type)"></el-alert>
+      <el-alert v-else-if="form.dict_type" type="warning" :closable="false" show-icon
+        style="margin-bottom:12px"
+        title="这个类型目前没有任何页面读取它 —— 保存后下拉里也不会出现"
+        :description="'页面上会生成下拉的类型只有这些：' + usedHintText"></el-alert>
+      <el-form-item label="字典类型" required>
+        <el-select v-model="form.dict_type" filterable placeholder="只能选择有下拉在用的类型" style="width:100%">
+          <el-option v-for="t in formTypeOptions" :key="t" :label="typeOptionLabel(t)" :value="t"></el-option>
+        </el-select>
+      </el-form-item>
+      <el-form-item label="键 / Key" required>
+        <el-input v-model="form.dict_key" placeholder="程序中使用的值，如 达飞 CMA"></el-input>
+      </el-form-item>
+      <el-form-item label="值 / 显示" required>
+        <el-input v-model="form.dict_value" placeholder="界面上展示的文本，如 达飞 CMA"></el-input>
+      </el-form-item>
+      <el-form-item label="排序"><el-input v-model="form.sort" placeholder="数字越小越靠前"></el-input></el-form-item>
+      <el-form-item label="状态">
+        <el-radio-group v-model="form.status"><el-radio :value="1">启用</el-radio><el-radio :value="0">停用</el-radio></el-radio-group>
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="dlg = false">取消</el-button>
+      <el-button type="primary" :loading="saving" @click="save">确定</el-button>
+    </template>
+  </el-dialog>
+</div>
+
+</div>
+
+<script src="/assets/vendor/vue.global.prod.js"></script>
+<script src="/assets/vendor/element-plus.full.min.js"></script>
+<script src="/assets/vendor/icons.iife.min.js"></script>
+<script src="/assets/js/common.js"></script>
+<script>
+/* 字典类型 → 中文名。新增类型时在这里补一行，未知类型会直接显示原始 code */
+var TYPE_LABELS = {
+  container_type:   '柜型',
+  carrier:          '船司',
+  origin_port:      '始发港',
+  port:             '港口',
+  file_type:        '文件类型',
+  origin_country:   '原产国',
+  customs_status:   '清关状态',
+  inspect_type:     '查验类型',
+  inspect_abnormal: '查验异常',
+  route_type:       '航线类型',
+  biz_type:         '业务类型',
+  pay_type:         '支付方式',
+  currency:         '币种'
+};
+
+/* 字典类型 → 界面用途。**只有下面这 8 种，页面上才有下拉会真正读它**
+   （对应各页面的 QG.dictList('xxx') 调用，是全站唯一数据源）。
+   新增 / 编辑弹窗的类型下拉**只允许选这 8 种**（2026-09-21 用户要求：
+   「显示不了的内容，不能进行添加」）—— 没有界面在读的类型（customs_status 等，
+   页面上是写死常量）加进字典也不会出现下拉，直接不让选、不让保存。
+   历史遗留的无用途类型记录仍可编辑 / 停用 / 删除（编辑时选项里会带上原类型），
+   但不能新加无用途类型，也不能把有用途的记录改成无用途类型。
+
+   ⚠️ origin_port（始发港）与 port（目的港/卸货港/清关港）是**两套独立数据**：
+   始发港是中国出运港，另外三个是美国目的港。往 port 里加中国起运港、
+   或往 origin_port 里加美国目的港，都会串味。 */
+var DICT_USAGE = {
+  carrier:        '建单页 · 船司',
+  container_type: '建单页 · 柜型',
+  origin_port:    '建单页 · 始发港（中国出运港）',
+  port:           '建单页 · 目的港 / 卸货港 / 清关港（目的国港口）',
+  file_type:      '建单页 · 附件文件类型',
+  origin_country: '建单页 · HS CODE 原产国',
+  inspect_type:   '查验订单 · 查验类型（弹窗 + 列表筛选）',
+  pay_type:       '充值记录 · 支付方式'
+};
+var USED_TYPES = Object.keys(DICT_USAGE);
+var USED_HINT  = USED_TYPES.map(function (t) { return TYPE_LABELS[t] + '(' + t + ')'; }).join(' / ');
+/* 正在编辑的记录的原类型。历史遗留的无用途类型（如 customs_status 旧数据）编辑时放行原类型，
+   其它情况一律只允许 8 种 —— 见 beforeSave 里的白名单校验。 */
+var EDIT_ORIGIN_TYPE = '';
+/* 本页版本号（改这个页面时顺手 +1）。显示在右上角，用于确认线上/浏览器里的
+   到底是不是最新文件 —— 看不到这个版本号就说明文件没覆盖或页面没强刷。 */
+var PAGE_VERSION = '2026-09-21a';
+
+QG.mount(function () {
+  var base = QG.listPage({
+    base: '/dicts',
+    query: { type: '' },
+    noOpts: true,
+    buildForm: function (row) {
+      return row
+        ? { dict_type: row.dict_type, dict_key: row.dict_key, dict_value: row.dict_value, sort: row.sort, status: Number(row.status) }
+        : { dict_type: '', dict_key: '', dict_value: '', sort: 0, status: 1 };
+    },
+    beforeSave: function (f) {
+      if (!f.dict_type || !f.dict_key || !f.dict_value) { QG.warn('类型 / 键 / 值 都不能为空'); return false; }
+      /* 白名单：新增只允许 8 种有下拉在读的类型；编辑历史遗留的无用途类型时放行原类型 */
+      var allow = USED_TYPES.slice();
+      if (EDIT_ORIGIN_TYPE && allow.indexOf(EDIT_ORIGIN_TYPE) < 0) allow.push(EDIT_ORIGIN_TYPE);
+      if (allow.indexOf(f.dict_type) < 0) {
+        QG.warn('「' + (TYPE_LABELS[f.dict_type] || f.dict_type) + '」没有任何页面会读取它，不能添加。可添加的类型：' + USED_HINT);
+        return false;
+      }
+      return f;
+    },
+    /* 写 /dicts 后 common.js 会自动广播「下拉数据失效」，其它页面的旧字典缓存一起作废 */
+    onSaved: function () { this.search(); }
+  });
+
+  return Object.assign({}, base, {
+    data: function () {
+      var d = base.data.call(this);
+      d.keyword = '';
+      d.pageVersion = PAGE_VERSION;
+      /* 模板表达式读不到外部作用域的变量，必须挂到实例上 */
+      d.usedHintText = '新增 / 编辑只能选有下拉在读的 ' + USED_TYPES.length + ' 种 —— '
+        + USED_HINT
+        + '。其它类型（清关状态 / 查验异常 / 航线类型 / 业务类型 / 币种 等）页面上是写死的，'
+        + '加了也不会出现下拉，所以不能在这里添加。';
+      return d;
+    },
+    computed: {
+      /* 筛选下拉：全部已知类型 + 列表里实际出现过的类型（能看到历史遗留的无用途数据） */
+      typeOptions: function () {
+        var seen = {}, out = [];
+        Object.keys(TYPE_LABELS).forEach(function (t) { if (!seen[t]) { seen[t] = 1; out.push(t); } });
+        (this.rows || []).forEach(function (r) {
+          var t = r.dict_type;
+          if (t && !seen[t]) { seen[t] = 1; out.push(t); }
+        });
+        return out;
+      },
+      /* 新增 / 编辑弹窗的类型下拉：只给「页面上有下拉在读」的 8 种。
+         编辑历史遗留的无用途类型时，把原类型也放进选项（标「· 无下拉」），
+         保证能正常回填保存；新增时永远只有 8 种可选。 */
+      formTypeOptions: function () {
+        var out = USED_TYPES.slice();
+        var cur = this.form && this.form.dict_type;
+        if (cur && out.indexOf(cur) < 0) out.push(cur);
+        return out;
+      },
+      /* 关键字在前端过滤：字典总量很小，不必为它加后端参数 */
+      view: function () {
+        var kw = (this.keyword || '').trim().toLowerCase();
+        if (!kw) return this.rows || [];
+        return (this.rows || []).filter(function (r) {
+          return String(r.dict_key || '').toLowerCase().indexOf(kw) >= 0
+              || String(r.dict_value || '').toLowerCase().indexOf(kw) >= 0;
+        });
+      }
+    },
+    methods: Object.assign({}, base.methods, {
+      typeLabel: function (t) { return TYPE_LABELS[t] || t; },
+      /* 这个字典类型有没有页面在下拉里读它；空串 = 没有任何界面在读 */
+      usageOf: function (t) { return DICT_USAGE[t] || ''; },
+      /* 类型下拉里的显示名：有下拉的照常，没有的补一个「· 无下拉」提醒 */
+      typeOptionLabel: function (t) { return (TYPE_LABELS[t] || t) + (DICT_USAGE[t] ? '' : ' · 无下拉'); },
+      /* 新增：预填当前筛选的类型，但只预填「有下拉在读」的；正筛在无用途类型上时不预填 */
+      openNew: function () {
+        EDIT_ORIGIN_TYPE = '';
+        var pre = this.q.type && USED_TYPES.indexOf(this.q.type) >= 0 ? { dict_type: this.q.type } : null;
+        this.openCreate(pre);
+      },
+      /* 编辑：记下原类型，放行历史遗留的无用途类型（可改键值/停用/删除），别的一律白名单 */
+      openEdit: function (row) {
+        EDIT_ORIGIN_TYPE = row ? row.dict_type : '';
+        base.methods.openEdit.call(this, row);
+      },
+      doReset: function () { this.q.type = ''; this.keyword = ''; this.reset(); },
+      toggle: function (row) {
+        var self = this;
+        QG.put('/dicts/' + row.id, {
+          dict_type: row.dict_type, dict_key: row.dict_key, dict_value: row.dict_value,
+          sort: row.sort, status: Number(row.status) === 1 ? 0 : 1
+        }).then(function () {
+          QG.toast('已更新');
+          self.search();
+        }).catch(function (e) { QG.err(e); });
+      }
+    })
+  });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>首页 · 清关管理系统</title>
+<link rel="icon" href="/favicon.ico">
+<link rel="stylesheet" href="/assets/vendor/element-plus.css">
+<link rel="stylesheet" href="/assets/css/app.css">
+<style>
+  .home-head{
+    background:linear-gradient(100deg,#243a55 0%,#2f6fb3 100%);border-radius:12px;color:#fff;
+    padding:22px 24px;margin-bottom:16px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;
+  }
+  .home-head h2{margin:0 0 6px;font-size:19px;font-weight:600}
+  .home-head p{margin:0;font-size:13px;color:rgba(255,255,255,.78)}
+  .home-head .spacer{flex:1}
+  .home-head .el-button{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.28);color:#fff}
+  .home-head .el-button:hover{background:rgba(255,255,255,.24);border-color:#fff;color:#fff}
+  .quick{display:flex;gap:10px;flex-wrap:wrap}
+  .quick a{
+    display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--qg-border);
+    border-radius:8px;padding:9px 14px;font-size:13px;color:#3c4650;
+  }
+  .quick a:hover{border-color:#a9c7e8;color:var(--qg-blue)}
+</style>
+</head>
+<body>
+<div id="app" v-cloak>
+
+<div class="page">
+  <div class="home-head">
+    <div>
+      <h2>{{ greeting }}，{{ user.real_name || user.username || '' }}</h2>
+      <p>{{ today }}　·　中美海运整柜清关业务看板</p>
+    </div>
+    <div class="spacer"></div>
+    <el-button @click="go('order-create.html')">＋ 创建订单</el-button>
+  </div>
+
+  <div class="stat-grid" v-loading="loading">
+    <div class="stat-card">
+      <div class="lbl">订单总数</div><div class="num blue">{{ stat.total || 0 }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="lbl">已预报</div><div class="num">{{ stat.forecast || 0 }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="lbl">申报中</div><div class="num orange">{{ stat.declaring || 0 }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="lbl">查验中</div><div class="num red">{{ stat.inspecting || 0 }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="lbl">已放行</div><div class="num green">{{ stat.released || 0 }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="lbl">未核销</div><div class="num orange">{{ stat.unverified || 0 }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="lbl">ISF 待办</div><div class="num">{{ stat.isf || 0 }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="lbl">提拆派</div><div class="num">{{ stat.pickup || 0 }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="lbl">发货人 / 进口商</div><div class="num">{{ stat.shipper || 0 }} / {{ stat.importer || 0 }}</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h3 class="card-title">常用操作</h3>
+    <div class="quick">
+      <a href="order-customs.html">清关订单</a>
+      <a href="order-isf.html">ISF 订单</a>
+      <a href="order-pickup.html">提拆派订单</a>
+      <a href="order-inspect.html">查验订单</a>
+      <a href="org-importer.html">进口商管理</a>
+      <a href="org-shipper.html">发货人管理</a>
+      <a href="fin-account.html">账户余额</a>
+      <a href="sys-plan.html">报价方案</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 class="card-title">最近订单</h3>
+    <el-table :data="rows" v-loading="loading" border stripe size="small">
+      <el-table-column type="index" label="#" width="52" align="center"></el-table-column>
+      <el-table-column prop="mbl_no" label="主提单号" min-width="150"></el-table-column>
+      <el-table-column prop="hbl_no" label="分单号" min-width="120"></el-table-column>
+      <el-table-column label="进口商" min-width="180" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.importer_name || '—' }}</template>
+      </el-table-column>
+      <el-table-column label="柜号" min-width="150" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.container_nos || '—' }}</template>
+      </el-table-column>
+      <el-table-column prop="plan_name" label="报价方案" width="120"></el-table-column>
+      <el-table-column label="清关状态" width="100" align="center">
+        <template #default="{ row }">
+          <el-tag :type="$qg.statusTag(row.customs_status)" size="small" disable-transitions>{{ row.customs_status_text }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="ETD" width="105">
+        <template #default="{ row }">{{ $qg.date(row.etd) }}</template>
+      </el-table-column>
+      <el-table-column label="创建时间" width="145">
+        <template #default="{ row }">{{ $qg.dateTime(row.created_at) }}</template>
+      </el-table-column>
+      <el-table-column label="是否核销" width="90" align="center">
+        <template #default="{ row }">{{ row.is_verified_text }}</template>
+      </el-table-column>
+    </el-table>
+    <div class="empty-holder" v-if="!loading && !rows.length">还没有订单，先去「创建订单」吧</div>
+  </div>
+</div>
+
+</div>
+
+<script src="/assets/vendor/vue.global.prod.js"></script>
+<script src="/assets/vendor/element-plus.full.min.js"></script>
+<script src="/assets/vendor/icons.iife.min.js"></script>
+<script src="/assets/js/common.js"></script>
+<script>
+QG.mount(function () {
+  return {
+    data: function () {
+      return { user: {}, stat: {}, rows: [], loading: true, today: '' };
+    },
+    computed: {
+      greeting: function () {
+        var h = new Date().getHours();
+        if (h < 6) return '凌晨好';
+        if (h < 12) return '早上好';
+        if (h < 14) return '中午好';
+        if (h < 18) return '下午好';
+        return '晚上好';
+      }
+    },
+    created: function () {
+      var d = new Date();
+      var wd = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()];
+      this.today = d.getFullYear() + ' 年 ' + (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日 星期' + wd;
+      var self = this;
+      QG.me().then(function (u) { self.user = u; }).catch(function () {});
+      QG.get('/orders/stat').then(function (s) { self.stat = s || {}; }).catch(function (e) { QG.err(e); });
+      QG.get('/orders', { page: 1, pageSize: 10, sortBy: 'o.created_at', sortDir: 'desc' })
+        .then(function (d) { self.rows = (d && d.list) || []; })
+        .catch(function (e) { QG.err(e); })
+        .finally(function () { self.loading = false; });
+    },
+    methods: {
+      go: function (p) { location.href = p; }
+    }
+  };
+});
+</script>
+</body>
+</html>

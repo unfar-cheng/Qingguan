@@ -1,0 +1,16 @@
+# 本地配置：含数据库口令与令牌签名密钥，禁止入库
+/api/config/config.php
+
+# 运行时与上传目录（内容不入库，仅保留目录本身）
+/api/runtime/*
+!/api/runtime/.gitkeep
+/uploads/*
+!/uploads/.gitkeep
+
+# 环境/编辑器产物
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+.idea/
+.vscode/

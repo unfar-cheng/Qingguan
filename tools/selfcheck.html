@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>数据与权限自检 · 清关管理系统</title>
+<link rel="icon" href="/favicon.ico">
+<style>
+  :root{--bd:#e4e7ed;--mut:#909399;--bg:#f5f7fa;--pri:#409eff;--ok:#67c23a;--bad:#f56c6c;--warn:#e6a23c}
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;color:#303133;background:var(--bg)}
+  .wrap{max-width:1100px;margin:0 auto;padding:24px}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--mut);font-size:13px;margin-bottom:18px}
+  .card{background:#fff;border:1px solid var(--bd);border-radius:8px;padding:16px 18px;margin-bottom:16px}
+  .card h2{font-size:15px;margin:0 0 12px;padding-left:8px;border-left:3px solid var(--pri)}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{border:1px solid var(--bd);padding:6px 9px;text-align:left;vertical-align:top}
+  th{background:#fafafa;font-weight:600;white-space:nowrap}
+  code{background:#f0f2f5;padding:1px 5px;border-radius:3px;font-size:12.5px}
+  .tag{display:inline-block;padding:1px 7px;border-radius:10px;font-size:12px;line-height:18px}
+  .t-ok{background:#f0f9eb;color:var(--ok);border:1px solid #e1f3d8}
+  .t-bad{background:#fef0f0;color:var(--bad);border:1px solid #fde2e2}
+  .t-warn{background:#fdf6ec;color:var(--warn);border:1px solid #faecd8}
+  .t-mut{background:#f4f4f5;color:var(--mut);border:1px solid #e9e9eb}
+  .verdict{border-left:4px solid var(--bad);background:#fef0f0;padding:12px 14px;border-radius:6px;margin-bottom:10px}
+  .verdict.good{border-left-color:var(--ok);background:#f0f9eb}
+  .verdict.info{border-left-color:var(--pri);background:#ecf5ff}
+  .verdict b{display:block;margin-bottom:4px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+  input{padding:6px 10px;border:1px solid var(--bd);border-radius:4px;font-size:13px;min-width:260px}
+  button{padding:6px 14px;border:0;border-radius:4px;background:var(--pri);color:#fff;font-size:13px;cursor:pointer}
+  button.ghost{background:#fff;color:#606266;border:1px solid var(--bd)}
+  .muted{color:var(--mut);font-size:12.5px}
+  pre{background:#f8f9fb;border:1px solid var(--bd);border-radius:4px;padding:10px;overflow:auto;font-size:12px;max-height:300px;margin:0}
+  .loading{color:var(--mut);padding:30px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>数据与权限自检</h1>
+  <div class="sub">
+    用某个账号登录后直接打开本页（不在左侧菜单里，属按 URL 打开的排查工具）。
+    它会拉一遍当前账号真实的接口返回，判断「看不到某条数据」到底是
+    <b>菜单没授权</b>、<b>下拉数据源没返回</b>，还是<b>那条记录本身不合规</b>。
+  </div>
+
+  <div class="row">
+    <input id="kw" placeholder="要查的公司名关键字（可留空）">
+    <button onclick="run()">重新自检</button>
+    <button class="ghost" onclick="location.reload()">刷新</button>
+  </div>
+
+  <div id="out"><div class="loading">正在读取接口…</div></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var API = '/api';
+
+  /* 页面上真正会读字典的 7 处下拉（必须与 pages/sys-dict.html 顶部的 DICT_USAGE 保持一致）。
+     本页是独立页面读不到那边的作用域，所以这里再写一份；改类型时两边都要改。 */
+  var USED_DICT = {
+    carrier:        { name: '船司',   use: '创建订单 · 船司' },
+    container_type: { name: '柜型',   use: '创建订单 · 柜型' },
+    origin_port:    { name: '始发港', use: '创建订单 · 始发港（独立数据）' },
+    port:           { name: '港口',   use: '创建订单 · 目的港 / 卸货港 / 清关港（共用一套）' },
+    file_type:      { name: '文件类型', use: '创建订单 · 附件文件类型' },
+    origin_country: { name: '原产国', use: '创建订单 · HS CODE 原产国' },
+    inspect_type:   { name: '查验类型', use: '查验订单 · 弹窗 + 列表筛选' },
+    pay_type:       { name: '支付方式', use: '充值记录 · 支付方式' }
+  };
+
+  function jget(path, q) {
+    var url = API + path;
+    if (q) {
+      var p = [];
+      Object.keys(q).forEach(function (k) {
+        if (q[k] === undefined || q[k] === null || q[k] === '') return;
+        p.push(encodeURIComponent(k) + '=' + encodeURIComponent(q[k]));
+      });
+      if (p.length) url += '?' + p.join('&');
+    }
+    return fetch(url, { credentials: 'same-origin' })
+      .then(function (r) { return r.text().then(function (t) {
+        try { return { ok: true, http: r.status, body: JSON.parse(t) }; }
+        catch (e) { return { ok: false, http: r.status, raw: t.slice(0, 400) }; }
+      }); })
+      .catch(function (e) { return { ok: false, http: 0, raw: String(e && e.message || e) }; });
+  }
+
+  function esc(s) {
+    return String(s === null || s === undefined ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function tag(text, cls) { return '<span class="tag t-' + cls + '">' + esc(text) + '</span>'; }
+  function verdict(kind, title, html) {
+    return '<div class="verdict' + (kind === 'bad' ? '' : ' ' + kind) + '"><b>' + esc(title) + '</b>' + html + '</div>';
+  }
+
+  function run() {
+    var kw = (document.getElementById('kw').value || '').trim();
+    var out = document.getElementById('out');
+    out.innerHTML = '<div class="loading">正在读取接口…</div>';
+
+    Promise.all([
+      jget('/auth/me'),
+      jget('/menu'),
+      jget('/dict/options'),
+      jget('/companies', { type: 1, page: 1, pageSize: 200 }),
+      jget('/companies', { type: 2, page: 1, pageSize: 200 })
+    ]).then(function (r) {
+      var me = r[0], menu = r[1], opts = r[2], ship = r[3], imp = r[4];
+      var html = [];
+
+      /* ---------- 1. 当前账号 ---------- */
+      var u = (me.body && me.body.code === 0) ? me.body.data : null;
+      html.push('<div class="card"><h2>1. 当前账号</h2>');
+      if (!u) {
+        html.push(verdict('bad', '拿不到当前用户 —— 会话已失效或接口报错',
+          '<div class="muted">接口返回：' + esc(me.http) + ' ' + esc(me.raw || (me.body && me.body.msg) || '') +
+          '。先退出重新登录，再打开本页。</div>'));
+      } else {
+        var perms = u.permissions || [];
+        html.push('<table><tr><th>账号</th><td><code>' + esc(u.username) + '</code> ' + esc(u.real_name || '') + '</td></tr>' +
+          '<tr><th>角色</th><td><code>' + esc(u.role_code) + '</code> ' + esc(u.role_name || '') +
+          (u.role_code === 'super' ? ' ' + tag('超管：权限通配 *，一切可见', 'ok') : '') + '</td></tr>' +
+          '<tr><th>权限 code</th><td>' + (perms.length
+            ? perms.map(function (c) { return '<code>' + esc(c) + '</code>'; }).join(' ')
+            : tag('（空）该角色没有授权任何菜单', 'bad')) + '</td></tr></table>');
+      }
+      html.push('</div>');
+
+      /* ---------- 2. 左侧菜单实际下发 ---------- */
+      var menus = (menu.body && menu.body.code === 0) ? (menu.body.data || []) : [];
+      var paths = [];
+      menus.forEach(function (m) {
+        if (m.children && m.children.length) {
+          m.children.forEach(function (c) { if (c.path) paths.push(c.path); });
+        } else if (m.path) paths.push(m.path);
+      });
+      html.push('<div class="card"><h2>2. 左侧菜单实际下发（GET /menu）</h2>');
+      if (!paths.length) {
+        html.push(verdict('bad', '这个账号左侧一根菜单都没有',
+          '<div class="muted">说明该角色在 <code>sys_role_permission</code> 里没有可用授权（或父分组没授权）。' +
+          '这种情况下"看不到某条数据"其实是<b>压根进不到那一页</b>。去「权限管理 → 角色权限」给这个角色勾上父分组+子菜单。</div>'));
+      } else {
+        html.push('<table><tr><th>#</th><th>分组</th><th>菜单</th><th>页面路径</th></tr>' +
+          menus.map(function (m, i) {
+            if (m.children && m.children.length) {
+              return m.children.map(function (c, k) {
+                return '<tr><td>' + (i + 1) + '.' + (k + 1) + '</td><td>' + esc(m.name) + '</td><td><b>' + esc(c.name) + '</b></td><td><code>' + esc(c.path) + '</code></td></tr>';
+              }).join('');
+            }
+            return '<tr><td>' + (i + 1) + '</td><td>—</td><td><b>' + esc(m.name) + '</b></td><td><code>' + esc(m.path) + '</code></td></tr>';
+          }).join('') + '</table>');
+      }
+      html.push('</div>');
+
+      /* ---------- 3. 公共下拉数据源 ---------- */
+      var d = (opts.body && opts.body.code === 0) ? opts.body.data : null;
+      html.push('<div class="card"><h2>3. 公共下拉数据源（GET /dict/options）</h2>');
+      if (!d) {
+        html.push(verdict('bad', '这个接口没返回成功 —— 下拉当然是空的',
+          '<div class="muted">HTTP ' + esc(opts.http) + '：' + esc(opts.raw || (opts.body && opts.body.msg) || '') +
+          '<br>这就是"创建订单页引用抬头为空"的直接原因。把这段截图发我即可。</div>'));
+      } else {
+        var shipNames = (d.shippers || []).map(function (x) { return x.company_name; });
+        var impNames = (d.importers || []).map(function (x) { return x.company_name; });
+        var dictTypes = Object.keys(d.dict || {});
+        html.push('<table>' +
+          '<tr><th>shippers 发货人</th><td>' + (d.shippers || []).length + ' 条' +
+            (d.shippers && d.shippers.length ? '：' + esc(shipNames.join(' | ')) : ' ' + tag('空', 'bad')) + '</td></tr>' +
+          '<tr><th>importers 进口商</th><td>' + (d.importers || []).length + ' 条' +
+            (d.importers && d.importers.length ? '：' + esc(impNames.join(' | ')) : ' ' + tag('空', 'bad')) + '</td></tr>' +
+          '<tr><th>plans 报价方案</th><td>' + (d.plans || []).length + ' 条</td></tr>' +
+          '<tr><th>dict 字典类型</th><td>' + (dictTypes.length ? esc(dictTypes.join(', ')) : tag('空', 'bad')) + '</td></tr>' +
+          '</table>');
+
+        /* 字典明细：每个类型有多少条 + 页面上有没有下拉在读它。
+           这一段专治「字典维护里加了一条，前端下拉里没有」——
+           一眼分辨是「加的类型根本没下拉在读」还是「有下拉但接口没返回」。 */
+        var rows = Object.keys(USED_DICT).map(function (t) {
+          return { t: t, name: USED_DICT[t].name, use: USED_DICT[t].use, n: ((d.dict || {})[t] || []).length, used: true };
+        });
+        Object.keys(d.dict || {}).forEach(function (t) {
+          if (!USED_DICT[t]) rows.push({ t: t, name: '', use: '', n: (d.dict[t] || []).length, used: false });
+        });
+        if (rows.length) {
+          html.push('<h3 style="font-size:13.5px;margin:16px 0 8px">字典明细（按类型）</h3>' +
+            '<table><tr><th>字典类型</th><th>中文名</th><th>接口返回条数</th><th>页面上有下拉在读它吗</th></tr>' +
+            rows.map(function (r) {
+              return '<tr><td><code>' + esc(r.t) + '</code></td><td>' + esc(r.name || '—') + '</td><td>' +
+                (r.n ? esc(r.n) + ' 条' : tag('空', 'bad')) + '</td><td>' +
+                (r.used ? tag('有', 'ok') + ' <span class="muted">' + esc(r.use) + '</span>'
+                        : tag('没有 —— 加了也不会出现下拉', 'warn')) + '</td></tr>';
+            }).join('') + '</table>' +
+            '<div class="muted" style="margin-top:8px">只有标「有」的类型，页面上才有下拉会读它。' +
+            '标「没有」的类型（清关状态 / 查验异常 / 航线类型 / 业务类型 / 币种 等）页面上是写死的常量，' +
+            '加字典不产生下拉 —— 要在页面上出现下拉，得让前端页面去读它。</div>');
+        }
+      }
+      html.push('</div>');
+
+      /* ---------- 4. 指定公司名查一遍 ---------- */
+      if (kw) {
+        var inOpts = d ? (d.shippers || []).concat(d.importers || []).filter(function (x) {
+          return String(x.company_name || '').indexOf(kw) >= 0;
+        }) : [];
+        var inList1 = ((ship.body && ship.body.data && ship.body.data.list) || []).filter(function (x) {
+          return String(x.company_name || '').indexOf(kw) >= 0;
+        });
+        var inList2 = ((imp.body && imp.body.data && imp.body.data.list) || []).filter(function (x) {
+          return String(x.company_name || '').indexOf(kw) >= 0;
+        });
+        /* 顺带查字典：这个关键字有没有出现在某个字典类型的键 / 值里 */
+        var dictHits = [];
+        Object.keys(d ? (d.dict || {}) : {}).forEach(function (t) {
+          ((d.dict || {})[t] || []).forEach(function (x) {
+            if (String(x.key || '').indexOf(kw) >= 0 || String(x.value || '').indexOf(kw) >= 0) {
+              dictHits.push(t + '（' + (USED_DICT[t] ? USED_DICT[t].name : '无下拉') + '）：' + x.value + ' / ' + x.key);
+            }
+          });
+        });
+        html.push('<div class="card"><h2>4. 查「' + esc(kw) + '」出现在哪</h2><table>' +
+          '<tr><th>下拉数据源 /dict/options</th><td>' + (inOpts.length
+            ? tag('有 ' + inOpts.length + ' 条', 'ok') + ' ' + esc(inOpts.map(function (x) { return x.company_name; }).join(' | '))
+            : tag('没有', 'bad')) + '</td></tr>' +
+          '<tr><th>字典 /dict/options（任意类型）</th><td>' + (dictHits.length
+            ? tag('有 ' + dictHits.length + ' 条', 'ok') + ' ' + esc(dictHits.join(' ｜ '))
+            : tag('没有', 'bad')) + '</td></tr>' +
+          '<tr><th>发货人管理列表 /companies?type=1</th><td>' + (inList1.length
+            ? tag('有 ' + inList1.length + ' 条', 'ok') : tag('没有', 'bad')) + '</td></tr>' +
+          '<tr><th>进口商管理列表 /companies?type=2</th><td>' + (inList2.length
+            ? tag('有 ' + inList2.length + ' 条', 'ok') : tag('没有', 'bad')) + '</td></tr>' +
+          '</table>');
+        if (inList1.length && !inOpts.length) {
+          html.push(verdict('info', '结论：记录在「发货人管理」里，但不在下拉里',
+            '<div class="muted">下拉的 SQL 是 <code>WHERE is_deleted=0 AND status=1 AND company_type=1</code>。' +
+            '所以这条记录的 <b>状态被停用</b>（status=0）或 <b>公司类型选成了进口商</b>，' +
+            '在管理页仍能看到，在下拉里就没了。去编辑那条记录，把「状态」改成<b>启用</b>即可。</div>'));
+        } else if (inOpts.length) {
+          html.push(verdict('good', '结论：数据是有的，下拉数据源里能看到',
+            '<div class="muted">那问题在页面渲染或缓存。请到「创建订单」页按 Ctrl+F5 强刷一次再看。</div>'));
+        } else if (!inList1.length && !inList2.length) {
+          html.push(verdict('bad', '结论：这个账号连管理列表里都查不到这条记录',
+            '<div class="muted">检查是不是查错了库/环境，或者记录的 <code>is_deleted=1</code>。</div>'));
+        }
+      }
+
+      out.innerHTML = html.join('');
+    });
+  }
+
+  window.run = run;
+  document.getElementById('kw').addEventListener('keydown', function (e) { if (e.key === 'Enter') run(); });
+  /* 支持用 URL 带关键字直接打开，例如 /tools/selfcheck.html?kw=ABC */
+  var m = /[?&]kw=([^&]*)/.exec(location.search);
+  if (m) document.getElementById('kw').value = decodeURIComponent(m[1]);
+  run();
+})();
+</script>
+</body>
+</html>
