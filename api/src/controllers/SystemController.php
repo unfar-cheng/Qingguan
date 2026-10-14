@@ -189,8 +189,8 @@ class SystemController
         Auth::requireLogin();
         $id   = (int) $p['id'];
         $role = RoleRepo::find($id);
-        if (($role['code'] ?? '') === 'super') {
-            Response::fail('超级管理员角色不能删除');
+        if (($role['code'] ?? '') === 'tenant_admin') {
+            Response::fail('租户系统管理员角色不能删除');
         }
         if (UserRepo::countByRole($id)) {
             Response::fail('该角色下还有员工，不能删除');

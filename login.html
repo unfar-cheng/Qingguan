@@ -16,6 +16,9 @@
       <h1>清关管理系统</h1>
       <div class="sub">中美海运整柜 · ISF申报 / 清关 / 提拆派 / 查验</div>
       <el-form @submit.prevent="submit" @keyup.enter="submit">
+        <el-input v-model="form.tenant" placeholder="请输入租户代码" size="large" clearable>
+          <template #prefix><el-icon><OfficeBuilding /></el-icon></template>
+        </el-input>
         <el-input v-model="form.username" placeholder="请输入账号" size="large" clearable>
           <template #prefix><el-icon><User /></el-icon></template>
         </el-input>
@@ -36,13 +39,13 @@
 QG.mount(function () {
   return {
     data: function () {
-      return { form: { username: '', password: '' }, loading: false, year: new Date().getFullYear() };
+      return { form: { tenant: '', username: '', password: '' }, loading: false, year: new Date().getFullYear() };
     },
     methods: {
       submit: function () {
         var self = this;
-        if (!self.form.username || !self.form.password) {
-          return QG.warn('请输入账号和密码');
+        if (!self.form.tenant || !self.form.username || !self.form.password) {
+          return QG.warn('请输入租户代码、账号和密码');
         }
         self.loading = true;
         QG.post('/auth/login', self.form)

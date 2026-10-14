@@ -47,7 +47,7 @@
             <div v-for="r in roles" :key="r.id" class="role-item" :class="{ active: current && current.id === r.id }" @click="select(r)">
               <div class="rn">
                 <span>{{ r.name }}</span>
-                <el-tag v-if="r.code === 'super'" type="danger" size="small" disable-transitions>超管</el-tag>
+                <el-tag v-if="r.code === 'tenant_admin'" type="danger" size="small" disable-transitions>租户系统管理员</el-tag>
                 <el-tag :type="Number(r.status) === 1 ? 'success' : 'info'" size="small" disable-transitions>
                   {{ Number(r.status) === 1 ? '启用' : '停用' }}
                 </el-tag>
@@ -64,8 +64,8 @@
           <div class="card" v-if="current">
             <h3 class="card-title">{{ current.name }} · 菜单与操作权限</h3>
 
-            <el-alert v-if="current.code === 'super'" type="warning" :closable="false" show-icon
-              title="超级管理员默认拥有全部权限，无需配置。" style="margin-bottom:12px"></el-alert>
+            <el-alert v-if="current.code === 'tenant_admin'" type="warning" :closable="false" show-icon
+              title="租户系统管理员默认拥有全部权限，无需配置。" style="margin-bottom:12px"></el-alert>
 
             <el-alert v-else type="info" :closable="false" show-icon style="margin-bottom:12px"
               title="菜单和操作分开勾选，互不影响。"
@@ -73,7 +73,7 @@
 
             <div class="perm-tree">
               <el-tree ref="tree" :data="tree" node-key="id" show-checkbox default-expand-all check-strictly
-                :props="{ label: 'name', children: 'children' }" :disabled="current.code === 'super'">
+                :props="{ label: 'name', children: 'children' }" :disabled="current.code === 'tenant_admin'">
                 <template #default="{ data }">
                   <span>
                     <el-tag v-if="Number(data.type) === 2" type="info" size="small" disable-transitions
@@ -88,8 +88,8 @@
 
             <div class="footer-bar">
               <el-button @click="openRole(current)">编辑角色</el-button>
-              <el-button v-if="current.code !== 'super'" @click="delRole(current)">删除角色</el-button>
-              <el-button type="primary" :loading="saving" :disabled="current.code === 'super'" @click="saveRolePerm">保存权限</el-button>
+              <el-button v-if="current.code !== 'tenant_admin'" @click="delRole(current)">删除角色</el-button>
+              <el-button type="primary" :loading="saving" :disabled="current.code === 'tenant_admin'" @click="saveRolePerm">保存权限</el-button>
             </div>
           </div>
           <div class="card" v-else>
@@ -153,7 +153,7 @@
     <el-form label-width="90px">
       <el-form-item label="角色名称" required><el-input v-model="form.name" placeholder="如 操作员"></el-input></el-form-item>
       <el-form-item label="角色标识" required>
-        <el-input v-model="form.code" placeholder="英文标识，如 operator" :disabled="!!fid && form.code === 'super'"></el-input>
+        <el-input v-model="form.code" placeholder="英文标识，如 operator" :disabled="!!fid && form.code === 'tenant_admin'"></el-input>
       </el-form-item>
       <el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="2"></el-input></el-form-item>
       <el-form-item label="状态">

@@ -46,10 +46,16 @@ class Auth
         return $data;
     }
 
-    public static function login(array $user): void
+    public static function login(array $user, array $tenant): void
     {
         $ttl = (int) App::config('app')['token_ttl'];
-        $token = self::sign(['uid' => (int) $user['id'], 'uname' => $user['username'], 'exp' => time() + $ttl]);
+        $token = self::sign([
+            'scope' => 'tenant',
+            'tid'   => (int) $tenant['id'],
+            'uid'   => (int) $user['id'],
+            'uname' => $user['username'],
+            'exp'   => time() + $ttl,
+        ]);
         $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
         setcookie(self::COOKIE, $token, [
             'expires'  => time() + $ttl,
@@ -59,6 +65,7 @@ class Auth
             'secure'   => $secure,
         ]);
         $_COOKIE[self::COOKIE] = $token;
+        Tenant::set(['id' => (int) $tenant['id'], 'mode' => $tenant['mode'], 'db_name' => $tenant['db_name']]);
         self::$user = $user;
     }
 
@@ -79,12 +86,38 @@ class Auth
             self::$user = [];
             return null;
         }
+
+        if (($payload['scope'] ?? '') === 'platform') {
+            $u = ControlDb::one('SELECT * FROM saas_platform_user WHERE id = ? AND status = 1 LIMIT 1',
+                [(int) ($payload['puid'] ?? 0)]);
+            if (!$u) {
+                self::$user = [];
+                return null;
+            }
+            unset($u['password_hash']);
+            $u['scope'] = 'platform';
+            self::$user = $u;
+            return $u;
+        }
+
+        // 租户侧会话：先据 tid 解析租户并建好数据面上下文，再取用户
+        $t = ControlDb::one('SELECT * FROM saas_tenant WHERE id = ? LIMIT 1', [(int) ($payload['tid'] ?? 0)]);
+        if (!$t || $t['status'] !== 'active') {
+            self::$user = [];
+            return null;
+        }
+        Tenant::set(['id' => (int) $t['id'], 'mode' => $t['mode'], 'db_name' => $t['db_name']]);
+
         $u = UserRepo::findWithRole((int) $payload['uid']);
         if (!$u || (int) $u['status'] !== 1) {
             self::$user = [];
             return null;
         }
         unset($u['password_hash']);
+        $u['scope']       = 'tenant';
+        $u['tenant_code'] = $t['code'];
+        $u['tenant_name'] = $t['name'];
+        $u['tenant_logo'] = $t['logo_url'];
         self::$user = $u;
         return $u;
     }
@@ -109,20 +142,20 @@ class Auth
         return $u;
     }
 
-    public static function isSuper(): bool
+    public static function isTenantAdmin(): bool
     {
         $u = self::user();
-        return $u && $u['role_code'] === 'super';
+        return $u && ($u['role_code'] ?? '') === 'tenant_admin';
     }
 
-    /** 当前用户可访问的权限 code 列表；超管返回 ['*'] */
+    /** 当前用户可访问的权限 code 列表；租户系统管理员返回 ['*'] */
     public static function permissionCodes(): array
     {
         $u = self::user();
-        if (!$u) {
+        if (!$u || ($u['scope'] ?? 'tenant') === 'platform') {
             return [];
         }
-        if ($u['role_code'] === 'super') {
+        if (($u['role_code'] ?? '') === 'tenant_admin') {
             return ['*'];
         }
         return PermissionRepo::codesForRole((int) $u['role_id']);

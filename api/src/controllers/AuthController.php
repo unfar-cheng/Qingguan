@@ -3,9 +3,11 @@ namespace QG\controllers;
 
 use QG\App;
 use QG\Auth;
+use QG\ControlDb;
 use QG\Req;
 use QG\Response;
 use QG\Router;
+use QG\Tenant;
 use QG\repos\PermissionRepo;
 use QG\repos\UserRepo;
 
@@ -22,11 +24,28 @@ class AuthController
 
     public static function login(): void
     {
+        $code     = Req::require_('tenant', '租户代码');
         $username = Req::require_('username', '账号');
         $password = Req::str('password');
         if ($password === '') {
             Response::fail('密码不能为空');
         }
+
+        $t = ControlDb::one('SELECT * FROM saas_tenant WHERE code = ? LIMIT 1', [$code]);
+        if (!$t) {
+            Response::fail('租户代码不存在');
+        }
+        if ($t['status'] === 'pending') {
+            Response::fail('申请审核中，通过后即可登录');
+        }
+        if ($t['status'] === 'rejected') {
+            Response::fail('申请未通过' . ($t['reject_reason'] !== '' ? '：' . $t['reject_reason'] : ''));
+        }
+        if ($t['status'] !== 'active') {
+            Response::fail('该租户已停用，请联系平台');
+        }
+
+        Tenant::set(['id' => (int) $t['id'], 'mode' => $t['mode'], 'db_name' => $t['db_name']]);
 
         $u = UserRepo::findByUsername($username);
         if (!$u || !password_verify($password, $u['password_hash'])) {
@@ -37,7 +56,7 @@ class AuthController
         }
 
         UserRepo::touchLogin((int) $u['id']);
-        Auth::login($u);
+        Auth::login($u, $t);
         App::log('auth', 'login', $u['id'], $username);
         unset($u['password_hash']);
         Response::ok($u, '登录成功');
