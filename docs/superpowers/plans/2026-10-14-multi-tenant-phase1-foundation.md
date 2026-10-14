@@ -1530,3 +1530,20 @@ git commit -m "docs: 一期地基计划执行完成"
 3. 结果：**29 passed, 0 failed**（PHP 8.3.6 + MySQL 8.0.46），含 HTTP 级登录与双租户隔离总测。
 4. 顺带修掉一个环境依赖：`tests/test_login.php` / `tests/test_isolation_http.php` 原先用 PHP 的 curl 扩展，而 breeder 上没装 `php-curl`。已改为调 `curl` 命令行（`tests/http.php`）。
 5. 验完删除临时库/账号与 `/tmp/qg_mt_check`，线上 `qingguan` 库与站点**未被触碰**。
+
+**发布到 breeder（2026-10-14 深夜）与途中发现的两个问题**
+
+本机开发站已上线：**https://qingguan-dev.sflswall.com.cn**（Apache 反代到 `php83-fpm` 127.0.0.1:9083，vhost 与 fpm 配置在 `ops/`，证书用 certbot webroot（HTTP-01）签，续期走 frappe 的 crontab）。
+
+第一次发布时撞上两个**本机与生产不一致**的问题，都已修掉再发：
+
+1. **开发库的 schema 不是生产库的 schema。** 本机 dev 库当初是拿仓库里厂商附带的 `db/schema.sql` 建的，而线上库是从厂商的数据导出恢复的，两者差 373 行：`sys_role_permission` 线上没有 `id` 列（复合主键）、`biz_plan` 的唯一键叫 `uk_code` 而不是 `uk_plan_code`、一堆列的可空性/默认值/类型不同（`sys_log.target_id` 线上是 `bigint`、`biz_isf` 线上有 `response` 没有 `remark`）。
+   - 迁移脚本原来的 `ADD COLUMN ... AFTER id` 在 `sys_role_permission` 上直接报 1054；唯一键按**写死的旧键名**去删，在生产上会「旧的没删掉、新的加上了」，等于租户内仍然全局唯一——正是计划里警告过的那个坑。
+   - 处理：① 本机 dev 库改成**从生产库整库克隆**（结构 + 数据），并且这是以后唯一正确的做法；② 迁移脚本改成**不假设旧键名**——按「唯一键恰好覆盖这些列」从 `information_schema` 里查出真实键名再删。
+2. **代码里写了一个生产库没有的列。** `biz_order_log.detail`：厂商的 `schema.sql` 有这列、代码也确实在写它（编辑订单 `'detail' => null`），但线上库没有 —— 也就是**线上「编辑订单」一直是坏的**。补了一条迁移 `db/migration_20261015_order_log_detail.sql` 把列加上。
+   顺带修了一个重构引入的 bug：`LogRepo::write()` 把空的 `target_id` 写成 `''`，而 `sys_log.target_id` 是整型列，严格模式下会报 `Incorrect integer value`（「系统设置 → 保存」那条日志的 target 就是空的，必炸）。已改成写 NULL。
+
+**发布动作与验证**：备份（库 dump + 代码 tar + vhost，都在 breeder 的 `/var/backups/qingguan/`）→ 建 `qingguan_control` 并灌结构/种子/授权 → 在 `qingguan` 上按序跑三条迁移 → 给线上 `config.php` 补 `control_db` 段 → 同步代码 → 补 `tests/`+`ops/` 的 Web 拒绝规则 → reload apache2 与 php8.3-fpm。
+验证：站点 200；`demo / admin / admin123` 登录成功；`/auth/me` 返回 `scope=tenant`、`tenant_code=demo`、`role_code=tenant_admin`、`permissions=['*']`；`/api/menu` 6 个顶级菜单；订单/抬头/方案/员工/角色/权限/配置/字典/日志/财务 16 个接口全部 `code:0`；`/tests/`、`/ops/`、`/db/`、`*.md`、`install.php` 均 403；Apache 错误日志无应用报错。
+
+发布前还做了一次**生产栈预检**：在 breeder 上把生产库整个克隆到临时库，跑三条迁移（MySQL 8.0.46 全过），rsync 一份代码到 `/tmp` 起站跑测试 —— **29 passed, 0 failed**。验完临时库/临时账号/临时目录已全部删除。
