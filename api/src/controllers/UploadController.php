@@ -3,10 +3,14 @@ namespace QG\controllers;
 
 use QG\App;
 use QG\Auth;
-use QG\Db;
 use QG\Req;
 use QG\Response;
 use QG\Router;
+use QG\repos\CompanyRepo;
+use QG\repos\DictRepo;
+use QG\repos\FileRepo;
+use QG\repos\LogRepo;
+use QG\repos\PlanRepo;
 
 class UploadController
 {
@@ -62,7 +66,7 @@ class UploadController
     {
         Auth::requireLogin();
         $orderId = Req::int('order_id');
-        $rows = Db::all('SELECT * FROM biz_order_file WHERE order_id = ? ORDER BY id DESC', [$orderId]);
+        $rows = FileRepo::listByOrder($orderId);
         foreach ($rows as &$r) {
             $r['url'] = rtrim(App::config('app')['upload_url'], '/') . '/' . ltrim($r['file_path'], '/');
         }
@@ -74,11 +78,11 @@ class UploadController
     {
         Auth::requireLogin();
         $orderId = Req::int('order_id');
-        if (!Db::val('SELECT id FROM biz_order WHERE id = ? AND is_deleted = 0', [$orderId])) {
+        if (!FileRepo::orderExists($orderId)) {
             Response::fail('订单不存在');
         }
         $path = Req::require_('file_path', '文件路径');
-        $id = Db::insert('biz_order_file', [
+        $id = FileRepo::create([
             'order_id'    => $orderId,
             'file_type'   => Req::str('file_type'),
             'file_name'   => Req::str('file_name') ?: basename($path),
@@ -87,7 +91,7 @@ class UploadController
             'uploaded_by' => Auth::id(),
             'created_at'  => App::now(),
         ]);
-        Db::insert('biz_order_log', [
+        LogRepo::writeOrderLog([
             'order_id' => $orderId, 'action' => '上传附件',
             'new_value' => Req::str('file_name'),
             'operator_id' => Auth::id(), 'created_at' => App::now(),
@@ -99,7 +103,7 @@ class UploadController
     {
         Auth::requireLogin();
         $id  = (int) $p['id'];
-        $row = Db::one('SELECT * FROM biz_order_file WHERE id = ?', [$id]);
+        $row = FileRepo::find($id);
         if (!$row) {
             Response::fail('文件不存在');
         }
@@ -107,32 +111,33 @@ class UploadController
         if (is_file($full)) {
             @unlink($full);
         }
-        Db::exec('DELETE FROM biz_order_file WHERE id = ?', [$id]);
+        FileRepo::delete($id);
         Response::ok(null, '已删除');
     }
 
     /**
      * 公共下拉数据：字典 + 进口商 + 发货人 + 方案，供各页面复用。
      *
-     * 注意：本接口**只校验登录，不校验角色** —— 任何登录账号拿到的数据完全一样。
+     * 注意：本接口**只校验登录，不校验角色** —— 同一租户内任何登录账号拿到的数据完全一样。
      * 「某个角色看不到某条数据」不可能是这里造成的（全表就 4 条固定 SQL，
-     * 没有任何用户 / 角色的过滤条件），见 部署说明.md「数据可见性与权限的关系」。
+     * 没有任何用户 / 角色的过滤条件，只有仓储层统一的租户过滤），
+     * 见 部署说明.md「数据可见性与权限的关系」。
      * 2026-09-17 修正：注册时漏写默认 auth=true，等于把发货人 / 进口商名册
      * 和整份字典对匿名访问者公开，已收回登录校验。
      */
     public static function options(): void
     {
         Auth::requireLogin();
-        $dicts = Db::all('SELECT dict_type, dict_key, dict_value FROM sys_dict WHERE status = 1 ORDER BY dict_type, sort, id');
         $grouped = [];
-        foreach ($dicts as $d) {
+        foreach (DictRepo::list('') as $d) {
+            if ((int) $d['status'] !== 1) { continue; }
             $grouped[$d['dict_type']][] = ['key' => $d['dict_key'], 'value' => $d['dict_value']];
         }
         Response::ok([
-            'dict'     => $grouped,
-            'importers' => Db::all('SELECT id, company_name, country, city, bond_no FROM org_company WHERE is_deleted = 0 AND status = 1 AND company_type = 2 ORDER BY company_name LIMIT 500'),
-            'shippers'  => Db::all('SELECT id, company_name, country, state_province, city, zip_code, address, phone FROM org_company WHERE is_deleted = 0 AND status = 1 AND company_type = 1 ORDER BY company_name LIMIT 500'),
-            'plans'     => Db::all('SELECT id, plan_code, plan_name, amount, applicable_port, customs_port, intro, notice FROM biz_plan WHERE status = 1 ORDER BY sort, id'),
+            'dict'      => $grouped,
+            'importers' => CompanyRepo::options(2, ''),
+            'shippers'  => CompanyRepo::options(1, ''),
+            'plans'     => PlanRepo::page('', '1'),
         ]);
     }
 }
