@@ -109,8 +109,9 @@
         try { j = JSON.parse(t); }
         catch (e) { throw new Error('接口返回异常：' + t.slice(0, 120)); }
         if (j.code === 401) {
-          if (w.top !== w) { w.top.location.href = '/login.html'; }
-          else { w.location.href = '/login.html'; }
+          var loginUrl = w.QG_LOGIN_URL || '/login.html';
+          if (w.top !== w && !w.QG_LOGIN_URL) { w.top.location.href = loginUrl; }
+          else { w.location.href = loginUrl; }
           throw new Error('未登录');
         }
         if (j.code !== 0) throw new Error(j.msg || '请求失败');
@@ -127,11 +128,11 @@
     post: function (p, d) { return request('POST', p, d); },
     put: function (p, d) { return request('PUT', p, d); },
     del: function (p, q) { return request('DELETE', p, q); },
-    upload: function (file, extra) {
+    upload: function (file, extra, url) {
       var fd = new FormData();
       fd.append('file', file);
       if (extra) Object.keys(extra).forEach(function (k) { fd.append(k, extra[k]); });
-      return request('POST', '/upload', fd, true);
+      return request('POST', url || '/upload', fd, true);
     },
 
     money: function (v) {
