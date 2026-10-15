@@ -14,7 +14,7 @@
   <div class="page-head">
     <h2 style="margin:0">租户审核</h2>
     <div class="spacer"></div>
-    <el-radio-group v-model="status" @change="load">
+    <el-radio-group v-model="status" @change="function () { q.page = 1; load(); }">
       <el-radio-button value="pending">待审核</el-radio-button>
       <el-radio-button value="active">已开通</el-radio-button>
       <el-radio-button value="rejected">已驳回</el-radio-button>
@@ -95,7 +95,8 @@ QG.mount(function () {
       reject: function (row) {
         var self = this;
         ElementPlus.ElMessageBox.prompt('请输入驳回原因（会展示给申请人）', '驳回 ' + row.name, {
-          inputPattern: /\S+/, inputErrorMessage: '原因不能为空'
+          inputPattern: /\S+/, inputErrorMessage: '原因不能为空',
+          inputValidator: function (v) { return (v || '').length > 200 ? '不能超过 200 字' : true; }
         }).then(function (r) {
           QG.post('/platform/tenants/' + row.id + '/reject', { reason: r.value })
             .then(function () { QG.toast('已驳回'); self.load(); })
