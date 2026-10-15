@@ -49,7 +49,7 @@ class AuthController
             Response::fail('该租户已停用，请联系平台');
         }
 
-        Tenant::set(['id' => (int) $t['id'], 'mode' => $t['mode'], 'db_name' => $t['db_name']]);
+        Tenant::set(['id' => (int) $t['id'], 'mode' => $t['mode'], 'db_name' => $t['db_name'], 'code' => $t['code']]);
 
         $u = UserRepo::findByUsername($username);
         if (!$u || !password_verify($password, $u['password_hash'])) {

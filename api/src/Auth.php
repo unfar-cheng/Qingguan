@@ -65,7 +65,7 @@ class Auth
             'secure'   => $secure,
         ]);
         $_COOKIE[self::COOKIE] = $token;
-        Tenant::set(['id' => (int) $tenant['id'], 'mode' => $tenant['mode'], 'db_name' => $tenant['db_name']]);
+        Tenant::set(['id' => (int) $tenant['id'], 'mode' => $tenant['mode'], 'db_name' => $tenant['db_name'], 'code' => $tenant['code']]);
         unset($user['password_hash']);
         self::$user = $user;
     }
