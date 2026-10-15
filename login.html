@@ -42,6 +42,13 @@ QG.mount(function () {
     data: function () {
       return { form: { tenant: '', username: '', password: '' }, brand: { name: '', logo: '' }, loading: false, year: new Date().getFullYear() };
     },
+    created: function () {
+      /* 裸 fetch 探测会话（不走 QG.request：它的 401 自动跳转会在登录页上自跳死循环）。
+         已是租户会话 → 直接进外壳；平台会话不拦——用户可能就是要再登一个租户，登录会顶替 cookie。 */
+      fetch('/api/auth/me', { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (j) {
+        if (j.code === 0 && j.data && j.data.scope !== 'platform') { location.href = '/index.html'; }
+      }).catch(function () {});
+    },
     methods: {
       onTenantBlur: function () {
         var self = this;

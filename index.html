@@ -160,14 +160,20 @@ QG.mount(function () {
     },
     created: function () {
       var self = this;
-      QG.get('/auth/me').then(function (u) { self.user = u; }).catch(function () { location.href = '/login.html'; });
-      /* 先取版号再开首页：这样第一个标签的地址就带 ?_v=，不会撞上浏览器里缓存的旧副本。
-         拿不到版号（服务器还没放 version.json）也照常打开，不能让新机制挡住正常使用。 */
-      QG.fetchBuild().then(function (v) {
-        if (v && v.build) self.build = v.build;
-        self.loadMenu(true);
-        self.startBuildWatch();
-      });
+      /* 单 cookie 双 scope：platform 令牌也能通过 /auth/me（返回平台用户），不拦下的话外壳
+         照常渲染、随后 /menu 等租户接口全部 403「缺少租户上下文」。平台会话直接送去平台后台。
+         因此菜单加载串到 me 之后：跳走时不发任何租户接口请求。 */
+      QG.get('/auth/me').then(function (u) {
+        if (u && u.scope === 'platform') { location.href = '/platform.html'; return; }
+        self.user = u;
+        /* 先取版号再开首页：这样第一个标签的地址就带 ?_v=，不会撞上浏览器里缓存的旧副本。
+           拿不到版号（服务器还没放 version.json）也照常打开，不能让新机制挡住正常使用。 */
+        QG.fetchBuild().then(function (v) {
+          if (v && v.build) self.build = v.build;
+          self.loadMenu(true);
+          self.startBuildWatch();
+        });
+      }).catch(function () { location.href = '/login.html'; });
     },
     methods: {
       /* iframe 的地址：带上版号参数，确保「文件更新后」浏览器不会拿旧副本。

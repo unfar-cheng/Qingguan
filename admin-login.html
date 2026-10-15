@@ -15,6 +15,7 @@
       <div class="login-logo">清</div>
       <h1>平台管理</h1>
       <div class="sub">清关管理系统 · 运营后台</div>
+      <el-alert v-if="tip" :title="tip" type="warning" :closable="false" style="margin-bottom:12px" />
       <el-form @submit.prevent="submit" @keyup.enter="submit">
         <el-input v-model="form.username" placeholder="平台账号" size="large" clearable>
           <template #prefix><el-icon><User /></el-icon></template>
@@ -36,7 +37,16 @@
 QG.mount(function () {
   return {
     data: function () {
-      return { form: { username: '', password: '' }, loading: false, year: new Date().getFullYear() };
+      return { form: { username: '', password: '' }, tip: '', loading: false, year: new Date().getFullYear() };
+    },
+    created: function () {
+      var self = this;
+      /* 裸 fetch 探测会话（不走 QG.request：它的 401 自动跳转会在登录页上自跳死循环）。
+         已是平台会话 → 直接进后台；是租户会话（403）→ 提示登录会顶替；未登录 → 正常显示表单。 */
+      fetch('/api/platform/me', { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (j) {
+        if (j.code === 0) { location.href = '/platform.html'; return; }
+        if (j.code === 403) { self.tip = '当前浏览器登录的是租户账号，登录平台账号后将替换该会话'; }
+      }).catch(function () {});
     },
     methods: {
       submit: function () {

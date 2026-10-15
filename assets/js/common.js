@@ -116,7 +116,7 @@
           else { w.location.href = loginUrl; }
           throw new Error('未登录');
         }
-        if (j.code !== 0) throw new Error(j.msg || '请求失败');
+        if (j.code !== 0) { var e0 = new Error(j.msg || '请求失败'); e0.code = j.code; throw e0; }
         /* 写操作动了公共下拉数据 → 广播失效，其它 iframe 的旧缓存立刻作废 */
         if (method !== 'GET' && OPTS_SOURCES.test(path)) QG.invalidateOpts();
         return j.data;

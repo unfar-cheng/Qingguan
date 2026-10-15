@@ -68,7 +68,15 @@ QG.mount(function () {
     data: function () {
       return { rows: [], total: 0, loading: false, status: 'pending', q: { page: 1, pageSize: 20 } };
     },
-    created: function () { this.load(); },
+    created: function () {
+      var self = this;
+      /* 先探明会话：单 cookie 双 scope，租户令牌调平台接口一律 403（两边令牌互不通用），
+         与其每个操作都弹错，不如直接送去平台登录页。未登录的 401 由 common.js 自动跳 admin-login。 */
+      QG.get('/platform/me').then(function () { self.load(); }).catch(function (e) {
+        if (e && e.code === 403) { location.href = '/admin-login.html'; return; }
+        QG.err(e);
+      });
+    },
     methods: {
       load: function () {
         var self = this;
