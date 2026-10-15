@@ -826,14 +826,13 @@ class PlatformController
 }
 ```
 
-修改 `api/index.php` 注册段（在 `UploadController::routes($router);` 之后、`$router->dispatch(...)` 之前）加两行：
+修改 `api/index.php` 注册段（在 `UploadController::routes($router);` 之后、`$router->dispatch(...)` 之前）加一行：
 
 ```php
 \QG\controllers\PlatformController::routes($router);
-\QG\controllers\TenantController::routes($router);
 ```
 
-（TenantController 在任务 5 创建；本步骤先只加 PlatformController 那一行，任务 5 再加另一行。）
+（TenantController 的注册行归任务 5——且必须注册在 PlanController **之前**，见该任务。）
 
 - [ ] **步骤 4：运行测试验证通过**
 
@@ -895,7 +894,7 @@ t('注册校验：密码太短 / 联系方式全空 / 重复代码 被拒', func
     assert_contains($r, '密码至少 8 位', '短密码应被拒：' . $r);
     $r = qg_post_json('/api/tenant/register', $base + ['password' => 'LongEnough1']);
     assert_contains($r, '至少填一个', '联系方式全空应被拒：' . $r);
-    $r = qg_post_json('/api/tenant/register', $base + ['code' => 'demo', 'contact_phone' => '13800000000', 'password' => 'LongEnough1']);
+    $r = qg_post_json('/api/tenant/register', ['code' => 'demo'] + $base + ['contact_phone' => '13800000000', 'password' => 'LongEnough1']);
     assert_contains($r, '已被占用', '重复代码应被拒：' . $r);
 });
 
@@ -1087,7 +1086,7 @@ class TenantController
 }
 ```
 
-确认 `api/index.php` 已加 `TenantController::routes($router);`（任务 4 预留）。
+`api/index.php` 注册 `\QG\controllers\TenantController::routes($router);`——**位置必须在 `\QG\controllers\PlanController::routes($router);` 之前**（建议紧跟 AuthController 之后）：Router 按注册顺序首次匹配，PlanController 的 `GET /plans/{id}`（带鉴权）会把 `/plans/public` 截成 `id='public'` 回 401（实现任务 5 时已实测踩过）。
 
 - [ ] **步骤 4：运行测试验证通过**
 
