@@ -229,7 +229,8 @@ POST /api/auth/login { tenant, username, password }
   - 任一库失败**立即停止**并打印「哪个库、哪个文件、什么错误」，已成功的库保持已升级状态（它们本来就是幂等的），修完重跑即可；
   - 支持 `--dry-run`（只列出「哪个库还差哪几个文件」）、`--only=<db_name>`、`--to=<NNNN>`；
   - 执行前自动 `mysqldump` 备份到 `db/backup/<库名>_<时间>.sql.gz`。
-- **建新库 = 按 migrations 从头跑一遍**。所以 `db/schema.sql` 的历史定位要改口：它是「单租户单机版基线」，只作参考资料，新库一律由 migrations 建；否则同一个结构会有两份真相，早晚不一致。
+- ~~**建新库 = 按 migrations 从头跑一遍**。所以 `db/schema.sql` 的历史定位要改口……~~
+  > **【2026-10-15 改口】** 改为：**建新库 = 灌 `db/schema.sql`**。`db/schema.sql` 已从「单租户基线」升格为**数据面结构的唯一权威**（含结构 + 租户参数化的产品默认数据，幂等，`SET @tenant_id := <id>` 指定目标租户）；它由「生产克隆库」导出归一而来、并用 `tests/test_schema_parity.php` 与开发库逐列逐键比对来兜底。`db/migrations/` 只负责**升级既有库**；每次迁移落库后必须同步把 DDL 改动写回 `db/schema.sql`，否则 parity 测试会红。建库与升级是两条正交的路：新库灌 schema.sql，旧库跑 migrations，二者由 parity 测试保证汇合。
 - **发布流程固化成三步**：备份 → 迁移（在切代码**之前**跑，因为新代码依赖新结构）→ 切代码/重启 → 验证。回滚只有代码层是可靠的（`git revert` + 重启）；数据库回滚靠执行前的备份，迁移脚本不写 down（写了也没人敢在生产上跑）。
 - **门禁**：`tests/run.php` 里加一条断言——开发库的 `schema_version` 等于 `db/migrations/` 的最大序号；`scripts/migrate.php --dry-run` 必须报「无待执行」。上线前这两条不过就不发。
 - 一期的两份迁移（`migration_20261015_multitenant.sql`、`migration_20261015_role_rename.sql`）在「运维基础设施」这一步归一到 `db/migrations/0001_*.sql` / `0002_*.sql`，并给已经跑过它们的库（本机 dev、生产）回填版本行。

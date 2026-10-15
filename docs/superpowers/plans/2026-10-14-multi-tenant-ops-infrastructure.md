@@ -33,7 +33,8 @@
 - `api/src/controllers/SystemController.php` —— 字典增删改的「平台项置灰」判定。
 - `pages/sys-dict.html` —— 平台下发项显示「平台」标签、编辑/删除置灰。
 - `docs/superpowers/specs/2026-10-14-multi-tenant-saas-design.md` —— 实施后把第 14/15 节状态改为「已实现」。
-- `db/schema.sql` —— 头部注释改口：它是单租户单机版基线，只作参考，新库一律由 `db/migrations/` 建。
+- ~~`db/schema.sql` —— 头部注释改口：它是单租户单机版基线，只作参考，新库一律由 `db/migrations/` 建。~~
+  > **【2026-10-15 已反转为：已完成】** `db/schema.sql` 反而升格为数据面结构**唯一权威**（新库灌它、结构变更同步它、`tests/test_schema_parity.php` 兜底一致）。本条不再做，新库走 schema.sql，旧库走 migrations，两者靠 parity 测试汇合。
 
 **明确不改**
 - 一期已交付的仓储层与守卫规则（本计划的所有新 SQL 同样受守卫约束）。
@@ -283,7 +284,7 @@ php83 tests/run.php                        # 全绿
 
 再用 HTTP 验证一次：`demo/admin/admin123` 登录后 `GET /api/dicts` 能看到带 `source` 的项；新建一个字典项 → `source='tenant'`；再发布一次平台字典 → 租户自建项仍在。
 
-- [ ] **步骤 2：把 `db/schema.sql` 的头部注释改口**（单租户基线 → 只作参考，新库走 migrations）。
+- [x] ~~**步骤 2：把 `db/schema.sql` 的头部注释改口**（单租户基线 → 只作参考，新库走 migrations）。~~ **【2026-10-15 反向后完成】** 头部注释已按新定位写好：schema.sql = 数据面结构唯一权威 + 租户参数化播种，幂等，parity 测试把闸。
 
 - [ ] **步骤 3：更新设计文档**，把第 14/15 节状态改为「已实现」，并记录实际命令。
 
