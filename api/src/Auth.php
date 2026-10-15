@@ -37,7 +37,7 @@ class Auth
             return null;
         }
         $data = json_decode(self::unb64($body), true);
-        if (!is_array($data) || empty($data['uid'])) {
+        if (!is_array($data) || (empty($data['uid']) && empty($data['puid']))) {
             return null;
         }
         if (!empty($data['exp']) && $data['exp'] < time()) {
@@ -165,5 +165,38 @@ class Auth
     {
         $codes = self::permissionCodes();
         return in_array('*', $codes, true) || in_array($code, $codes, true);
+    }
+
+    /** 平台管理员登录：签发 scope=platform 的令牌（payload 用 puid，无租户上下文） */
+    public static function platformLogin(array $puser): void
+    {
+        $ttl = (int) App::config('app')['token_ttl'];
+        $token = self::sign([
+            'scope' => 'platform',
+            'puid'  => (int) $puser['id'],
+            'uname' => $puser['username'],
+            'exp'   => time() + $ttl,
+        ]);
+        $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+        setcookie(self::COOKIE, $token, [
+            'expires'  => time() + $ttl,
+            'path'     => '/',
+            'httponly' => true,
+            'samesite' => 'Lax',
+            'secure'   => $secure,
+        ]);
+        $_COOKIE[self::COOKIE] = $token;
+        $puser['scope'] = 'platform';
+        self::$user = $puser;
+    }
+
+    /** 要求平台管理员：未登录 401；登录了但是租户令牌 403（两边令牌互不通用） */
+    public static function requirePlatform(): array
+    {
+        $u = self::requireLogin();
+        if (($u['scope'] ?? 'tenant') !== 'platform') {
+            Response::fail('需要平台管理员权限', 403, 403);
+        }
+        return $u;
     }
 }
