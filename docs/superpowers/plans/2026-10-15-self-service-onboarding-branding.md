@@ -659,7 +659,7 @@ class PlatformController
 
     public static function login(): void
     {
-        if (!RateLimit::allow('platform-login|' . App::ip(), 10, 600)) {
+        if (!RateLimit::allow('platform-login|' . App::remoteAddr(), 10, 600)) {
             Response::fail('尝试过于频繁，请 10 分钟后再试', 429, 429);
         }
         $username = Req::require_('username', '账号');
@@ -944,7 +944,7 @@ class TenantController
 
     public static function register(): void
     {
-        if (!RateLimit::allow('register|' . App::ip(), 5, 3600)) {
+        if (!RateLimit::allow('register|' . App::remoteAddr(), 5, 3600)) {
             Response::fail('提交过于频繁，请 1 小时后再试', 429, 429);
         }
         $name = Req::require_('name', '企业名称');
@@ -1956,7 +1956,7 @@ php83 tests/run.php
 php83 tests/guard_no_raw_business_sql.php
 ```
 
-预期：全绿（基线 31 + 本计划新增 20 = **51 passed, 0 failed**；如个别用例数有出入以实际为准并同步改 AGENTS.md）+ `guard ok`。HTTP 用例依赖 dev 站点在线。
+预期：全绿（基线 31 + 任务1 共 3 + 任务2 共 5 + 任务3 共 3 + 任务4 共 4 + 任务5 共 4 + 任务11 共 5 = **55 passed, 0 failed**；中间各任务步骤里写的计数是按计划编写时的估算，以实际为准并同步改 AGENTS.md）+ `guard ok`。HTTP 用例依赖 dev 站点在线。
 
 - [ ] **步骤 2：bump version.json**
 
@@ -1998,5 +1998,5 @@ git push
 1. 备份 → 跑 `db/migration_20261015_drop_tenant_default.sql` 与 `db/migration_20261015_config_cleanup.sql`（都幂等）→ 同步代码 → reload apache2。
 2. breeder 上跑 `php83 scripts/seed_platform_admin.php <生产超管账号> <强密码>`（**不要用 dev 的 Platform@12345**）。
 3. 跑附件搬迁脚本（先 `--dry-run`）。
-4. 核对 breeder vhost（未入库）有与 dev 相同的 db/ops/tests/docs 拒绝规则。
+4. 核对 breeder vhost（未入库）有与 dev 相同的 db/ops/tests/docs 拒绝规则，**并补上同款 `<Directory /opt/qingguan/api/runtime> Require all denied </Directory>`**（限流计数文件防下载，dev 侧已在任务 2 落地）。
 5. 验证：register.html 注册 → platform.html 通过 → 新租户登录 → 上传 Logo → 登录页品牌展示。
