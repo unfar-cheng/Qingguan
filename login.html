@@ -48,6 +48,8 @@ QG.mount(function () {
         var code = (self.form.tenant || '').trim();
         if (!code) { self.brand = { name: '', logo: '' }; return; }
         QG.get('/tenant/branding', { code: code }).then(function (d) {
+          /* 失焦竞态守卫：慢响应回来时输入框已换成别的代码，就丢弃这次结果 */
+          if ((self.form.tenant || '').trim() !== code) { return; }
           self.brand = (d && d.found) ? { name: d.name, logo: d.logo_url } : { name: '', logo: '' };
         }).catch(function () {});
       },
