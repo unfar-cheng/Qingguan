@@ -62,7 +62,22 @@ t('Tenant::pdo 专用档：带 code 时走派生凭据连接（不存在的库�
         Tenant::pdo();
         assert_true(false, 'qingguan_t_9002 不存在，连接应失败');
     } catch (PDOException $e) {
+        /* 前提：本机 MySQL 可达且认证先于选库——1045 Access denied 消息含尝试的用户名；
+           若实现退化成共享凭据，消息里只会出现共享账号名而非 qg_9002，此断言即红 */
+        assert_contains($e->getMessage(), 'qg_9002');
         assert_true(true, 'PDO 连接异常 = 已走到专用连接路径（真库连通性在任务 7 e2e 验证）');
+    } finally {
+        Tenant::set(null);
+        Tenant::resetPools();
+    }
+});
+
+t('Tenant::pdo 专用档：db_name 为空回退共享库', function () {
+    Tenant::resetPools();
+    Tenant::set(['id' => 9002, 'mode' => 'dedicated', 'db_name' => '', 'code' => '9002']);
+    try {
+        $db = Tenant::pdo()->query('SELECT DATABASE()')->fetchColumn();
+        assert_eq(App::config('db')['name'], $db, 'mode=dedicated 但 db_name 为空应连到共享库');
     } finally {
         Tenant::set(null);
         Tenant::resetPools();
