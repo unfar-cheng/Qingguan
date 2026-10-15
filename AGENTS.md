@@ -31,8 +31,8 @@
 全部在 `/data/qingguan/app` 下执行：
 
 ```bash
-# 跑测试（31 个用例；HTTP 用例需要站点在跑，否则自动跳过）
-php83 tests/run.php                     # 期望 31 passed, 0 failed
+# 跑测试（60 个用例；HTTP 用例需要站点在跑，否则自动跳过）
+php83 tests/run.php                     # 期望 60 passed, 0 failed
 php83 tests/guard_no_raw_business_sql.php   # 期望 guard ok
 
 # 只跑部分 / 指向临时站点
@@ -74,10 +74,15 @@ api/src/Auth.php       HMAC-SHA256 签名 token（HttpOnly cookie qg_token）、
 api/src/Tenant.php     每请求租户上下文 + 按库名缓存的 PDO 池
 api/src/Db.php         数据面薄封装，**写死走 Tenant::pdo()**
 api/src/ControlDb.php  控制面连接（跨租户对象）
-api/src/controllers/   7 个：Auth/Order/Plan/Org/Finance/System/Upload
-api/src/repos/         11 个：Order/Finance/User/Permission/Role/Company/Plan/Log/Dict/File/Config
-index.html             外壳：左侧菜单(来自 /api/menu) + 保活 iframe 多标签 + 版本水印
-login.html             登录页（租户代码 + 用户名 + 密码）
+api/src/controllers/   9 个：Auth/Order/Plan/Org/Finance/System/Upload + Platform（平台登录与租户审核）/Tenant（注册/品牌公开接口 + Logo 上传）
+api/src/repos/         11 个：Order/Finance/User/Permission/Role/Company/Plan/Log/Dict/File/Config（+ProvisionRepo 开通播种）
+api/src/RateLimit.php  文件型滑动窗口限流（api/runtime/ratelimit/，fail-open）
+api/src/TenantProvisioner.php  幂等开通：按 tenant_id 执行 db/schema.sql 播种 + 建管理员（SQL 在 repos/ProvisionRepo）
+index.html             外壳：左侧菜单(来自 /api/menu) + 保活 iframe 多标签 + 版本水印 + 租户品牌（名称/Logo）
+login.html             登录页（租户代码 + 用户名 + 密码；输入租户代码失焦拉 /api/tenant/branding 显示企业品牌）
+register.html          企业自助注册页（公开，→ saas_tenant status=pending）
+admin-login.html       平台管理登录页（公开，→ /api/platform/login）
+platform.html          平台后台：租户审核（通过/驳回/停用/启用），scope=platform；页面在 common.js 之前设 window.QG_LOGIN_URL 跳回平台登录
 pages/*.html           16 个子页面
 assets/js/common.js    全局 QG：API 封装、分页列表 mixin、下拉缓存、QG.can、QG.selfCheck
 assets/js/orders.js    QG.orderListPage(module) 生成 4 个订单列表页；assets/js/org.js 同理
@@ -99,7 +104,7 @@ ops/                   Apache vhost 与 php83-fpm 池配置
 
 **认证**：不是 session、不是标准 JWT——是 `b64(payload).b64(hmac_sha256(payload, app.secret))` 放在 HttpOnly cookie `qg_token` 里。两种 scope：
 - `tenant`：靠 `saas_tenant` 解析租户，要求 `status='active'`；`tenant_admin` 角色短路为权限 `['*']`，其余走 `PermissionRepo::codesForRole()`。
-- `platform`：读 `saas_platform_user`，**不设租户上下文**。⚠️ 平台登录目前**只有 `Auth` 里的分支，没有注册任何 controller/route**。
+- `platform`：读 `saas_platform_user`，**不设租户上下文**。平台侧已由 `PlatformController` 接线（`/api/platform/*`，全部经 `Auth::requirePlatform()`，令牌互不通用：租户令牌调平台接口 403，反之平台令牌无租户上下文 403）。平台超管靠 `php83 scripts/seed_platform_admin.php` CLI 播种（无注册入口）。
 
 **多租户连接选择**：唯一变量是 `Tenant::pdo()`——`mode==='dedicated' && db_name` 用专用库，否则用共享库 `App::config('db')['name']`。连接按库名缓存在 `Tenant::$pools`。没有租户上下文就 403。
 
@@ -144,14 +149,15 @@ mysql -u<user> -p <库名> -e "SET @tenant_id := <id>; SOURCE db/schema.sql;"
 
 配套规矩：**迁移脚本不许假设旧唯一键/索引的名字**，要按「哪个键恰好覆盖这些列」从 `information_schema` 查真实键名再操作。`db/check-menu-node.sql` 是 9 步「菜单不显示」排查/修复脚本（纯 SELECT + 幂等 INSERT/UPDATE，可整段粘贴执行），不是迁移。
 
-**已知未落地**：`docs/superpowers/plans/2026-10-14-multi-tenant-ops-infrastructure.md` 规划的 `db/migrations/NNNN_*.sql` + `scripts/{fanout,migrate,export_dict_template,publish_dict}.php` + `schema_version` 表 + 平台字典下发**尚未实现**（`db/migrations/` 与 `scripts/` 目录都还不存在）。当前迁移仍以 `db/migration_20261015_*.sql` 手工执行。做这件事时按该计划走，不要另发明机制。
+**已知未落地**：`docs/superpowers/plans/2026-10-14-multi-tenant-ops-infrastructure.md` 规划的 `db/migrations/NNNN_*.sql` + `scripts/{fanout,migrate,export_dict_template,publish_dict}.php` + `schema_version` 表 + 平台字典下发**尚未实现**（`db/migrations/` 不存在；`scripts/` 已有 `seed_platform_admin.php` 与 `migrate_uploads_namespace.php` 两个独立脚本，但计划里的那批还没有）。当前迁移仍以 `db/migration_20261015_*.sql` 手工执行。做这件事时按该计划走，不要另发明机制。
 
 ## 7. 测试
 
 - 零依赖自建断言器：`tests/lib.php` 提供 `t($name, $fn)`、`assert_true/assert_eq/assert_contains`；`tests/run.php` glob `tests/test_*.php` 后逐个跑，打印 `PASS/FAIL` 并在失败时退出非零。
 - **测试连的是 `api/config/config.php` 指向的真实开发库**（`bootstrap.php` 读 `App::config('db')` / `control_db`）——**没有独立测试库，也没有读 `.env`**。隔离靠使用高号段合成租户 id（9001/9002/9101…）并在用例结束时清理。因为直连真实库，别在测试里做破坏性操作。
 - HTTP 用例走 **`curl` 命令行**（`tests/http.php`，因为 breeder 上没装 `php-curl`），默认打 `QG_BASE` 或 `https://qingguan-dev.sflswall.com.cn`；站点不通会**自动跳过**（`qg_site_up()` 探测 `/api/auth/me`）。部分用例依赖已播种的 `demo / admin / admin123`。
-- 预期基线：`php83 tests/run.php` → `31 passed, 0 failed`；守卫 → `guard ok`。**这两个不绿不要提交。**
+- 预期基线：`php83 tests/run.php` → `60 passed, 0 failed`；守卫 → `guard ok`。**这两个不绿不要提交。**
+- 限流与测试的交互：`register` 5 次/小时/IP、`platform-login` 10 次/10 分钟、`tenant-login` 20 次/10 分钟（存 `api/runtime/ratelimit/`）。一次全量套件恰好用满部分桶——**`tests/bootstrap.php` 在套件启动时会自动清空该目录**，所以重复跑全绿；手工打接口验证时若撞 429，`rm -rf api/runtime/ratelimit/*` 即可。
 - **结构把闸**：`tests/test_schema_parity.php` 会把 `db/schema.sql` 里的 21 条 CREATE TABLE 落到当前库（`__parity__` 前缀临时表）再与真实表逐列逐键比对——**改了 `db/migration_*.sql` 的结构却忘了同步 `db/schema.sql` 的 DDL 段时它会红**。这是「每次表结构变更也要维护好 db/schema.sql」的强制手段。
 
 ## 8. 部署与运维纪律
@@ -159,7 +165,7 @@ mysql -u<user> -p <库名> -e "SET @tenant_id := <id>; SOURCE db/schema.sql;"
 - **必须用 `php83`**，裸 `php` 是 7.4，连语法都过不了。
 - 需要的 PHP 扩展：`pdo_mysql`、`mbstring`、`fileinfo`、`json`、`openssl`（`curl` 扩展在生产缺失，别在代码里用）。
 - 只允许 `uploads/` 与 `api/runtime/` 可写（775），其余只读。
-- vhost 已禁止 Web 访问 `db/`、`ops/`、`tests/`、`docs/`、`.git/`、`install.php`，以及 `*.sql|md|log|ini|conf|sh|env|bak`；`uploads/` 禁止执行 `.php/php5/phtml/phar`。HTML/JS/CSS 为 `no-cache`，`version.json` 为 `no-store`——**改完前端要重新生成 `version.json` 的 `build`**，否则已打开的页面不会刷新。（`common.js` 里提到生成脚本 `_tools/pack-zips.py`，该文件不在本仓库中。）
+- vhost 已禁止 Web 访问 `db/`、`ops/`、`tests/`、`docs/`、`.git/`、`install.php`、`api/runtime/`（限流计数文件），以及 `*.sql|md|log|ini|conf|sh|env|bak`；`uploads/` 禁止执行 `.php/php5/phtml/phar`。HTML/JS/CSS 为 `no-cache`，`version.json` 为 `no-store`——**改完前端要重新生成 `version.json` 的 `build`**（无打包脚本时可取 `git rev-parse --short=10 HEAD`），否则已打开的页面不会刷新。（`common.js` 里提到生成脚本 `_tools/pack-zips.py`，该文件不在本仓库中。）
 - `api/config/config.php`（从 `config.sample.php` 复制）**含密钥、不入库**：`db` / `control_db` / `app`（`secret` 必须换掉、`token_ttl`、`upload_dir`、`upload_url`、`max_upload`、`allow_ext`、`page_size`、`debug`）。`.env` 也不入库，但**代码里没读它**（只有 `tests/http.php` 读环境变量 `QG_BASE`）。
 - **`api/install.php` 是遗留物、别用**：它插 `sys_user` 时**不写 `tenant_id`**（多租户前的代码），而且无鉴权——vhost 已把它禁掉。
 - `部署说明.md` 是**厂商的宝塔/Nginx 版说明，已经过时**（里面还写着 `role_code='super'`，实际已改名为 `tenant_admin`）。**本仓库的部署事实以 `ops/` 与 `docs/superpowers/` 为准。**
@@ -169,10 +175,11 @@ mysql -u<user> -p <库名> -e "SET @tenant_id := <id>; SOURCE db/schema.sql;"
 1. **严格 SQL 模式**：空值写 `NULL`，别写 `''`。`sys_log.target_id` 是整型列，写 `''` 会直接报 `Incorrect integer value`（「系统设置 → 保存」那条日志就踩过）。
 2. **「加页面」不等于「加菜单」**：菜单在 `sys_permission` 里，不插行左侧栏就什么都不显示。别硬编码节点 id（历史上 `parent_id=40` 造出过孤儿节点）；注意「悬空授权」（授了子节点没授父分组）；最多两级；改完菜单按 `Ctrl+F5`。
 3. **权限只控制菜单可见性，不控制数据**——数据隔离靠 `tenant_id`（见 §4 守卫）。唯一例外是订单新建的 5 个按钮权限（按 `from_module` 判，否则 403）。
-4. **平台侧还没接线**：`scope=platform` 的登录/后台没有 controller 与 route，`SystemController::permissionTree()` 还需支持任意层级（按钮是第 3 级），否则按钮权限会静默消失。
+4. **平台侧已接线但权限树仍有层级坑**：`SystemController::permissionTree()` 还需支持任意层级（按钮是第 3 级），否则按钮权限会静默消失。
 5. 下拉缓存的正则 `OPTS_SOURCES` 必须是 `dicts?`（复数）——早先写成单数 `dict` 造成过「新字典项不出现在下拉框」的真实 bug。
-6. 附件路径目前是全局的 `uploads/order/Y/m/`，设计目标是 `uploads/t<tid>/order/Y/m/`（按租户分目录，**尚未实现**）。
-7. 面向物理隔离档（`mode='dedicated'`）的专用库一台都还没有；写多库逻辑时要能正确处理「0 个专用库」。
+6. 附件路径已按租户分目录 `uploads/t<tid>/order/Y/m/`（2026-10-15 起），存量旧路径 `order/...` 由 `php83 scripts/migrate_uploads_namespace.php` 搬迁（幂等，先 `--dry-run`）。**在 breeder 上跑迁移要用 `sudo -u www-data php83 ...`（或跑完 `chown -R www-data:www-data /opt/qingguan/uploads`）**——root 跑会让新目录属主变 root，php-fpm 之后写不进去。
+7. 面向物理隔离档（`mode='dedicated'`）的专用库一台都还没有；写多库逻辑时要能正确处理「0 个专用库」。开通播种器对专用档**显式拒绝**（二期）。
+8. **schema.sql 的语句字符串内不得含 ASCII 分号**：开通播种由 `ProvisionRepo::splitStatements()` 去注释行后按 `;` 切段执行，值里混入 `;` 会切坏语句。同理行尾注释必须 `-- `（带空格）。改 schema.sql 前先看 `ProvisionRepo` 头注释的三条约定。
 
 ## 10. 提交与分支
 

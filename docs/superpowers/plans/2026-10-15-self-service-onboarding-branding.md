@@ -2,6 +2,8 @@
 
 > **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [ ]`）语法来跟踪进度。
 
+> **执行记录（2026-10-15）：13 个任务全部完成**（任务 6 提前、任务 4/5 按控制器注拆分、11/12 合并审查）。过程中依审查结论对计划文本做过同步回写（限流用 `App::remoteAddr()`、路由注册顺序、状态守卫、`?v=` 版本参数、上线清单 runbook 等）——**以本文档当前文本为准**，中间步骤里的旧预期计数已过时。终态门禁：`php83 tests/run.php` 全绿 + `guard ok`，基线见 AGENTS.md §7。
+
 **目标：** 打通「企业自助注册 → 平台审核 → 自动开通播种 → 登录可用」链路，并交付租户 Logo 与附件按租户命名空间。
 
 **架构：** 控制面复用现有 4 张 `saas_*` 表（不加表）；新增 `PlatformController`（`/api/platform/*`，scope=platform 隔离）与 `TenantController`（公开注册/品牌接口 + Logo 上传）；开通播种由 `TenantProvisioner` + `ProvisionRepo` 幂等执行 `db/schema.sql`；前端新增 `register.html` / `admin-login.html` / `platform.html` 三个顶层页。
@@ -1115,8 +1117,11 @@ class TenantController
             }
         }
         $url = rtrim($cfg['upload_url'], '/') . '/' . $sub . '/logo.' . $ext;
-        ControlDb::exec('UPDATE saas_tenant SET logo_url = ? WHERE id = ?', [$url, $tid]);
-        Response::ok(['logo_url' => $url], 'Logo 已更新');
+        $url = rtrim($cfg['upload_url'], '/') . '/' . $sub . '/logo.' . $ext;
+        // 版本参数（任务 10 审查定稿）：同扩展名覆盖时 URL 也在变，所有消费端自动失效缓存
+        $versioned = $url . '?v=' . time();
+        ControlDb::exec('UPDATE saas_tenant SET logo_url = ? WHERE id = ?', [$versioned, $tid]);
+        Response::ok(['logo_url' => $versioned], 'Logo 已更新');
     }
 }
 ```
@@ -2065,6 +2070,6 @@ git push
 
 1. 备份 → 跑 `db/migration_20261015_drop_tenant_default.sql` 与 `db/migration_20261015_config_cleanup.sql`（都幂等）→ 同步代码 → reload apache2。
 2. breeder 上跑 `php83 scripts/seed_platform_admin.php <生产超管账号> <强密码>`（**不要用 dev 的 Platform@12345**）。
-3. 跑附件搬迁脚本（先 `--dry-run`）。
+3. 跑附件搬迁脚本（先 `--dry-run`）。**必须以 www-data 身份跑**：`sudo -u www-data php83 scripts/migrate_uploads_namespace.php`（或跑完 `sudo chown -R www-data:www-data /opt/qingguan/uploads`）——root 直跑会让新建的 `t1/order/...` 目录属主变 root，php-fpm 之后写不进新附件。
 4. 核对 breeder vhost（未入库）有与 dev 相同的 db/ops/tests/docs 拒绝规则，**并补上同款 `<Directory /opt/qingguan/api/runtime> Require all denied </Directory>`**（限流计数文件防下载，dev 侧已在任务 2 落地）。
 5. 验证：register.html 注册 → platform.html 通过 → 新租户登录 → 上传 Logo → 登录页品牌展示。

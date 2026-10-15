@@ -1,7 +1,7 @@
 # 清关管理系统 · 自助开通与品牌 设计
 
 - 日期：2026-10-15
-- 状态：**设计稿，待评审**（评审通过后交给 writing-plans 写实现计划）
+- 状态：**已实现（2026-10-15）**——实现计划 `plans/2026-10-15-self-service-onboarding-branding.md`（13 个任务全部完成；基线 `60 passed, 0 failed` + `guard ok`）。残留二期项见 §10。
 - 影响范围：单租户/手工开通 → 企业自助注册、平台审核、自动开通播种、租户 Logo 与附件命名空间
 - 前置：`db/schema.sql` 已于 2026-10-15 升格为**数据面结构唯一权威**（结构 + 租户参数化默认数据，幂等），本设计的「开通播种」直接复用它。
 
@@ -35,7 +35,7 @@
 - **`Router` 只有「登录与否」的粗粒度门禁**（`$auth=true` → `Auth::requireLogin()`）。平台接口需要**按 scope 隔离**：平台接口不能被租户令牌调通，反之亦然。要加 `Auth::requirePlatform()` / `requireTenant()`。
 - **`db/schema.sql` 现在就是开租脚本**：幂等、`SET @tenant_id := <id>` 指定目标租户、内含菜单/角色/授权/配置/字典的产品默认数据，不预置 `sys_user` 与业务数据。开通播种 = 把它按目标 `tenant_id` 跑一遍。
 - **附件是 Apache 静态直出**：`file_path` 存相对路径（如 `order/2026/10/xxx.pdf`），URL = `upload_url + '/' + file_path`，不走 PHP。这决定了「命名空间」只能把 tid 编进路径，**防不住知道完整 URL 的直接访问**（见 §10 风险）。
-- **`tenant_id` 目前全表 `DEFAULT 1`**：专用档库（二期）里这是个隐患——任何一处忘了传 `tenant_id` 的写入会静默落到租户 1。本设计不碰它，但列为二期的前置清理项（见 §10）。
+- **`tenant_id` 默认值隐患已消除**（2026-10-15，`db/migration_20261015_drop_tenant_default.sql`）：21 张表的 `tenant_id` 已去掉 `DEFAULT 1`，漏传会直接报错而不是静默落到租户 1。
 
 ## 3. 范围与分期
 
@@ -183,10 +183,11 @@ class TenantProvisioner
 
 ## 10. 风险与开放问题
 
-- **附件静态直出**：命名空间只把 tid 编进路径，防得住「顺序遍历 URL」，防不住「拿到完整 URL 直接访问」。若要真隔离，得把附件改走 PHP 鉴权下载（`serve` 接口 + `Auth`），那是另一个量级的改动，本次不做，列为后续。
-- **`tenant_id DEFAULT 1` 隐患**：专用档（二期）里任何漏传 `tenant_id` 的写入会静默落到租户 1。二期建库前，先补一条迁移把 21 张表的 `tenant_id` 去掉默认值（`NOT NULL`），让漏传直接报错而不是串租户。
+- **附件静态直出**：命名空间只把 tid 编进路径，防得住「顺序遍历 URL」，防不住「拿到完整 URL 直接访问」。若要真隔离，得把附件改走 PHP 鉴权下载（`serve` 接口 + `Auth`），那是另一个量级的改动，本次不做，列为后续。（同扩展名覆盖导致的浏览器缓存旧图，已用 `logo_url` 带 `?v=<time>` 版本参数缓解。）
+- ~~**`tenant_id DEFAULT 1` 隐患**~~：已消除（见 §2）。
 - **`saas_platform_user` 的初始账号**靠手工播，注意密码强度与保管。
-- 平台后台是个新攻击面，上线前在 breeder 上把 `admin-login.html`/`platform.html` 的访问也过一遍 Web 拒绝规则的核对（它们应可访问，但 `/api/platform/*` 不能漏鉴权）。
+- 平台后台是个新攻击面，上线前在 breeder 上把 `admin-login.html`/`platform.html` 的访问也过一遍 Web 拒绝规则的核对（它们应可访问，但 `/api/platform/*` 不能漏鉴权；`api/runtime/` 的拒绝段也要复制）。
+- **Backlog（实现评审记录的遗留小项）**：① 被驳回/搁置租户的 `code` 永久占用，无清理/释放机制；② `saas_audit.detail` 存在 JSON（register）与纯文本（平台动作）两种格式，将来做审计展示要兼容；③ `/tenant/code-check`、`/tenant/branding` 无限流（设计接受的品牌信息公开边界，若观察到枚举滥用再加宽松档）；④ 登录时序侧信道（未知用户不跑 bcrypt）——与租户侧同款基线，量小时不值得修。
 
 ## 11. 测试策略
 
