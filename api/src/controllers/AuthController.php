@@ -4,6 +4,7 @@ namespace QG\controllers;
 use QG\App;
 use QG\Auth;
 use QG\ControlDb;
+use QG\RateLimit;
 use QG\Req;
 use QG\Response;
 use QG\Router;
@@ -24,6 +25,9 @@ class AuthController
 
     public static function login(): void
     {
+        if (!RateLimit::allow('tenant-login|' . App::remoteAddr(), 20, 600)) {
+            Response::fail('尝试过于频繁，请 10 分钟后再试', 429, 429);
+        }
         $code     = Req::require_('tenant', '租户代码');
         $username = Req::require_('username', '账号');
         $password = Req::str('password');
