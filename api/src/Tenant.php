@@ -45,14 +45,17 @@ class Tenant
             Response::fail('缺少租户上下文', 403, 403);
         }
         $dedicated = ($ctx['mode'] ?? 'shared') === 'dedicated' && !empty($ctx['db_name']);
+        if ($dedicated) {
+            /* code 守卫在池判断之前：池命中也不能绕过——长驻进程复用上下文时，防线不被缓存短路 */
+            $code = (string) ($ctx['code'] ?? '');
+            if ($code === '') {
+                throw new \RuntimeException('专用档租户上下文缺少 code，无法派生库账号');
+            }
+        }
         $dbName = $dedicated ? $ctx['db_name'] : App::config('db')['name'];
         if (!isset(self::$pools[$dbName])) {
             $c = App::config('db');
             if ($dedicated) {
-                $code = (string) ($ctx['code'] ?? '');
-                if ($code === '') {
-                    throw new \RuntimeException('专用档租户上下文缺少 code，无法派生库账号');
-                }
                 $user = DedicatedDb::user($code);
                 $pass = DedicatedDb::pass($code);
             } else {
