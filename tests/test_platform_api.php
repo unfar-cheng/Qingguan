@@ -32,6 +32,8 @@ t('租户令牌调平台接口被 403', function () {
     qg_post_json('/api/auth/login', ['tenant' => 'demo', 'username' => 'admin', 'password' => 'admin123'], ['-c', $jar]);
     $r = qg_curl('/api/platform/tenants', ['-b', $jar]);
     assert_contains($r, '需要平台管理员权限', '租户令牌必须被平台接口拒绝：' . $r);
+    $r2 = qg_post_json('/api/platform/logout', [], ['-b', $jar]);
+    assert_contains($r2, '需要平台管理员权限', '租户令牌调平台 logout 也必须被拒：' . $r2);
     @unlink($jar);
 });
 

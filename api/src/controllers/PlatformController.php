@@ -50,6 +50,7 @@ class PlatformController
 
     public static function logout(): void
     {
+        Auth::requirePlatform();
         Auth::logout();
         Response::ok(null, '已退出');
     }
