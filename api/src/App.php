@@ -18,6 +18,12 @@ class App
         return $key === null ? self::$cfg : (self::$cfg[$key] ?? null);
     }
 
+    /** 测试用：整份替换配置（必须配对恢复原值，先例：Tenant::resetPools） */
+    public static function overrideConfig(array $cfg): void
+    {
+        self::$cfg = $cfg;
+    }
+
     public static function secret(): string
     {
         $s = self::config('app')['secret'];

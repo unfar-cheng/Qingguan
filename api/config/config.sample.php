@@ -18,6 +18,15 @@ return [
         'pass'    => 'CHANGE_ME',
         'charset' => 'utf8mb4',
     ],
+    // 专用档开通专用（二期）：能建 qingguan_t_% 库与 qg_% 账号，别的一概不能。
+    // 缺失或 pass 为空时，专用档审核通过会报「未配置」并保持 pending，共享档完全不受影响。
+    'provision_db' => [
+        'host' => '127.0.0.1',
+        'port' => 3306,
+        'user' => 'qg_provision',
+        'pass' => 'CHANGE_ME',
+        'charset' => 'utf8mb4',
+    ],
     'app' => [
         'secret'       => 'CHANGE_ME_TO_A_LONG_RANDOM_STRING',
         'token_ttl'    => 86400 * 7,
