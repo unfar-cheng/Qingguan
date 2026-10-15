@@ -184,6 +184,7 @@ mysql -u<user> -p <库名> -e "SET @tenant_id := <id>; SOURCE db/schema.sql;"
 ## 10. 提交与分支
 
 - 提交信息用**中文**，沿用 Conventional Commits 前缀：`feat:` / `fix:` / `refactor:` / `test:` / `chore:` / `docs:`（看 `git log` 对齐风格）。
-- 当前工作分支 `feat/multi-tenant-foundation`（另有 `main`），远端 `origin` = `git@github.com:lilingyun-outlookcom/qingguan.git`。
+- 分支模型（2026-10-15 起）：`main` 为集成分支（与线上 dev 站点同步演进），功能开发开 `feat/<topic>` 分支、完成并审查后 fast-forward 回 `main`。《自助开通与品牌》即以 `feat/multi-tenant-foundation` 方式并入（该分支已合并，保留未删）。
+- 远端 `origin` = `git@github.com:lilingyun-outlookcom/qingguan.git`。
 - 本仓库**没有 CI、没有 `composer.json`、没有 `package.json`**——「提交前跑一遍 `php83 tests/run.php` + 守卫」就是全部门禁。
 - 小步提交：多租户改造面很大（原本 163 处 `Db::` 调用），逐个 controller/仓储迁移并保持测试常绿。
