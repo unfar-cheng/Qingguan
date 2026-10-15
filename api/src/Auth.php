@@ -107,7 +107,7 @@ class Auth
             self::$user = [];
             return null;
         }
-        Tenant::set(['id' => (int) $t['id'], 'mode' => $t['mode'], 'db_name' => $t['db_name']]);
+        Tenant::set(['id' => (int) $t['id'], 'mode' => $t['mode'], 'db_name' => $t['db_name'], 'code' => $t['code']]);
 
         $u = UserRepo::findWithRole((int) $payload['uid']);
         if (!$u || (int) $u['status'] !== 1) {
