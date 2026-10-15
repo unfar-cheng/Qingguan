@@ -10,6 +10,9 @@ use QG\repos\ProvisionRepo;
  */
 class TenantProvisioner
 {
+    /** 双 host 覆盖 TCP、反解、socket 三种连接路径，派生账号在任一路径下都可用 */
+    private const PROVISION_HOSTS = ['localhost', '127.0.0.1'];
+
     public static function provision(array $tenant, ?int $platformUserId): void
     {
         $tid = (int) ($tenant['id'] ?? 0);
@@ -32,19 +35,7 @@ class TenantProvisioner
 
         if ($mode === 'shared') {
             Tenant::set(['id' => $tid, 'mode' => 'shared', 'db_name' => '']);
-            try {
-                Db::begin();
-                try {
-                    ProvisionRepo::seedFromSchema($tid);
-                    ProvisionRepo::ensureAdminUser($tid, $tenant['admin_username'], $tenant['admin_password_hash'], (string) ($tenant['name'] ?? ''));
-                    Db::commit();
-                } catch (\Throwable $e) {
-                    Db::rollback();
-                    throw $e;
-                }
-            } finally {
-                Tenant::set(null);
-            }
+            self::seedInTxn($tenant, $tid);
         } else {
             self::provisionDedicated($tenant, $tid);
         }
@@ -95,17 +86,26 @@ class TenantProvisioner
 
         $pdo = DedicatedDb::provisionPdo();
         // $name/$user/$pass 均来自 DedicatedDb 的白名单派生（[a-z0-9-]），反引号内无注入面
-        $pdo->exec("CREATE DATABASE IF NOT EXISTS `{$name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-        foreach (['localhost', '127.0.0.1'] as $host) {
+        self::ddl($pdo, "CREATE DATABASE IF NOT EXISTS `{$name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci", '建库');
+        foreach (self::PROVISION_HOSTS as $host) {
             // CREATE IF NOT EXISTS + ALTER IDENTIFIED BY：两步合一覆盖「新建」与「密码归位」，
             // 且是 MySQL 8.0 与 MariaDB 10.5 的共同子集（SET PASSWORD 的明文语义两边不一致，不用）
-            $pdo->exec("CREATE USER IF NOT EXISTS `{$user}`@`{$host}` IDENTIFIED BY '{$pass}'");
-            $pdo->exec("ALTER USER `{$user}`@`{$host}` IDENTIFIED BY '{$pass}'");
-            $pdo->exec("GRANT ALL PRIVILEGES ON `{$name}`.* TO `{$user}`@`{$host}`");
+            self::ddl($pdo, "CREATE USER IF NOT EXISTS `{$user}`@`{$host}` IDENTIFIED BY '{$pass}'", '建账号+密码归位');
+            self::ddl($pdo, "ALTER USER `{$user}`@`{$host}` IDENTIFIED BY '{$pass}'", '建账号+密码归位');
+            self::ddl($pdo, "GRANT ALL PRIVILEGES ON `{$name}`.* TO `{$user}`@`{$host}`", '授权');
         }
 
-        // 步骤 4：播种。Tenant::set 带 code，Tenant::pdo() 会用派生账号连专用库——连不上/授权不对在这里暴露
+        // 播种：Tenant::set 带 code，Tenant::pdo() 会用派生账号连专用库——连不上/授权不对在这里暴露
         Tenant::set(['id' => $tid, 'mode' => 'dedicated', 'db_name' => $name, 'code' => $code]);
+        self::seedInTxn($tenant, $tid);
+    }
+
+    /**
+     * 播种事务（shared / dedicated 共用）：以已设好的租户上下文执行 db/schema.sql 播种 + 建管理员；
+     * 失败回滚并原样上抛；无论成败，结束都清空租户上下文。
+     */
+    private static function seedInTxn(array $tenant, int $tid): void
+    {
         try {
             Db::begin();
             try {
@@ -118,6 +118,16 @@ class TenantProvisioner
             }
         } finally {
             Tenant::set(null);
+        }
+    }
+
+    /** 执行一条开通 DDL；失败时消息带步骤定位（建库/建账号/授权），排障看审计即知挂在哪一步 */
+    private static function ddl(\PDO $pdo, string $sql, string $what): void
+    {
+        try {
+            $pdo->exec($sql);
+        } catch (\Throwable $e) {
+            throw new \RuntimeException("专用档 DDL 失败（{$what}）：" . $e->getMessage(), 0, $e);
         }
     }
 }
