@@ -538,6 +538,8 @@ git commit -m "feat: 开通播种器（按 tenant_id 幂等执行 schema.sql + �
 
 创建 `tests/test_platform_api.php`（HTTP；平台超管账号由任务 6 的脚本播种，用户名 `platform` 密码 `Platform@12345`，未播种则用例跳过）：
 
+> **执行顺序调整（2026-10-15，控制器注）：本任务先只落地下面前 3 个用例并提交（全绿）；第 4 个「审核端到端」用例依赖任务 5 的注册接口，由任务 5 追加后再转绿。**
+
 ```php
 <?php
 require_once __DIR__ . '/lib.php';
@@ -727,6 +729,12 @@ class PlatformController
         try {
             TenantProvisioner::provision($t, (int) $admin['id']);
         } catch (\Throwable $e) {
+            // 并发 approve 兜底：两个管理员同时点「通过」时，loser 会撞 uk_tenant_username 的 1062。
+            // 此时先重读控制面状态，若已是 active 则按幂等成功处理（任务 3 质量审查的结论）。
+            $now = ControlDb::one('SELECT status FROM saas_tenant WHERE id = ? LIMIT 1', [(int) $t['id']]);
+            if (($now['status'] ?? '') === 'active') {
+                Response::ok(null, '该租户已在其他请求中开通（幂等）');
+            }
             self::audit((int) $admin['id'], 'provision_failed', (int) $t['id'], mb_substr($e->getMessage(), 0, 500));
             Response::fail('开通失败：' . $e->getMessage());
         }
@@ -808,9 +816,9 @@ class PlatformController
 
 - [ ] **步骤 4：运行测试验证通过**
 
-先确认 dev 站点在跑，然后：
+先确认 dev 站点在跑、且任务 6 的播种脚本已在 dev 播了平台超管（`platform / Platform@12345`），然后：
 运行：`php83 tests/run.php 2>&1 | tail -3`
-预期：平台相关 4 个用例中，前 3 个转 PASS；「审核端到端」里的注册步会 FAIL（`/api/tenant/register` 还不存在）——这是预期内的半截状态，任务 5 补齐后转绿。若此时想保持全绿再提交，可先注释掉端到端用例、任务 5 再恢复；推荐直接继续任务 5 后一起提交。
+预期：`46 passed, 0 failed`（43 + 新增 3 个平台用例全 PASS；「审核端到端」用例本任务不落地，由任务 5 补）。
 
 - [ ] **步骤 5：Commit**
 
@@ -829,6 +837,8 @@ git commit -m "feat: 平台登录与租户审核接口（scope=platform 隔离�
 - 测试：`tests/test_register.php`
 
 - [ ] **步骤 1：编写失败的测试**
+
+> 本任务除了 `tests/test_register.php`，还要把任务 4 预留的「审核端到端」用例（任务 4 测试文件里的第 4 个用例，原文照搬）追加进 `tests/test_platform_api.php`——此时注册接口已就绪，它会转绿。
 
 创建 `tests/test_register.php`：
 
