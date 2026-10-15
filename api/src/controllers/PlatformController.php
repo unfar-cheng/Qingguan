@@ -119,8 +119,18 @@ class PlatformController
         if ($reason === '') {
             Response::fail('驳回原因不能为空');
         }
-        ControlDb::exec("UPDATE saas_tenant SET status = 'rejected', reject_reason = ?, reviewed_at = NOW(), reviewed_by = ? WHERE id = ?",
-            [$reason, (int) $admin['id'], (int) $t['id']]);
+        if (mb_strlen($reason) > 200) {
+            Response::fail('驳回原因不能超过 200 字');
+        }
+        // 状态守卫：只在仍为 pending 时落驳回（approve 的最终 UPDATE 同样带 AND status='pending'，
+        // 两边都不会把对方的结果无条件覆盖）。
+        $n = ControlDb::exec(
+            "UPDATE saas_tenant SET status = 'rejected', reject_reason = ?, reviewed_at = NOW(), reviewed_by = ? WHERE id = ? AND status = 'pending'",
+            [$reason, (int) $admin['id'], (int) $t['id']]
+        );
+        if ($n === 0) {
+            Response::fail('租户状态已变化，请刷新后重试');
+        }
         self::audit((int) $admin['id'], 'reject', (int) $t['id'], $reason);
         Response::ok(null, '已驳回');
     }

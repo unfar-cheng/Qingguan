@@ -43,10 +43,18 @@ class TenantProvisioner
             Tenant::set(null);
         }
 
-        ControlDb::exec(
-            "UPDATE saas_tenant SET status = 'active', reviewed_at = NOW(), reviewed_by = ?, admin_password_hash = '', reject_reason = '' WHERE id = ?",
+        // 状态守卫：UPDATE 只在 status='pending' 时命中。0 行说明期间被 reject/并发改写——
+        // 已是 active 视为幂等达成；否则抛异常走 provision_failed，绝不把「已驳回」的租户翻成 active。
+        $n = ControlDb::exec(
+            "UPDATE saas_tenant SET status = 'active', reviewed_at = NOW(), reviewed_by = ?, admin_password_hash = '', reject_reason = '' WHERE id = ? AND status = 'pending'",
             [$platformUserId, $tid]
         );
+        if ($n === 0) {
+            $now = ControlDb::one('SELECT status FROM saas_tenant WHERE id = ?', [$tid]);
+            if (($now['status'] ?? '') !== 'active') {
+                throw new \RuntimeException('租户状态已变化（现为 ' . ($now['status'] ?? '?') . '），开通中止');
+            }
+        }
         ControlDb::insert('saas_audit', [
             'platform_user_id' => $platformUserId,
             'action'           => 'approve',
