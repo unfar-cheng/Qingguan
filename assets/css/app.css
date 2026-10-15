@@ -200,4 +200,4 @@ a{color:var(--qg-blue);text-decoration:none}
 
 /* 租户 Logo */
 .brand .logo { width: 26px; height: 26px; border-radius: 7px; object-fit: contain; background: #fff; flex: none; }
-.login-logo-img { width: 56px; height: 56px; border-radius: 12px; object-fit: contain; margin: 0 auto 12px; display: block; background: #fff; }
+.login-logo-img { width: 44px; height: 44px; border-radius: 11px; object-fit: contain; margin: 0 0 12px; display: block; background: #fff; }
