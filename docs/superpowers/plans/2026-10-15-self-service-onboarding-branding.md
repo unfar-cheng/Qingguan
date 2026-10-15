@@ -495,10 +495,18 @@ class TenantProvisioner
             Tenant::set(null);
         }
 
-        ControlDb::exec(
-            "UPDATE saas_tenant SET status = 'active', reviewed_at = NOW(), reviewed_by = ?, admin_password_hash = '', reject_reason = '' WHERE id = ?",
+        // 状态守卫：UPDATE 只在 status='pending' 时命中。0 行说明期间被 reject/并发改写——
+        // 已是 active 视为幂等达成；否则抛异常走 provision_failed，绝不把「已驳回」的租户翻成 active。
+        $n = ControlDb::exec(
+            "UPDATE saas_tenant SET status = 'active', reviewed_at = NOW(), reviewed_by = ?, admin_password_hash = '', reject_reason = '' WHERE id = ? AND status = 'pending'",
             [$platformUserId, $tid]
         );
+        if ($n === 0) {
+            $now = ControlDb::one('SELECT status FROM saas_tenant WHERE id = ?', [$tid]);
+            if (($now['status'] ?? '') !== 'active') {
+                throw new \RuntimeException('租户状态已变化（现为 ' . ($now['status'] ?? '?') . '），开通中止');
+            }
+        }
         ControlDb::insert('saas_audit', [
             'platform_user_id' => $platformUserId,
             'action'           => 'approve',
@@ -604,6 +612,9 @@ t('审核端到端：注册→approve→新租户管理员可登录→重复 app
     // 重复 approve 幂等
     $r = qg_post_json('/api/platform/tenants/' . $tid . '/approve', [], ['-b', $jar]);
     assert_contains($r, '"code":0', '重复 approve 应幂等成功：' . $r);
+    // 状态机回归：开通后驳回必须被拒（approve/reject 互斥，任务 4 质量审查 I1 的配套用例）
+    $r = qg_post_json('/api/platform/tenants/' . $tid . '/reject', ['reason' => '不该成功'], ['-b', $jar]);
+    assert_contains($r, '仅待审核的租户可驳回', 'active 租户不可驳回：' . $r);
     // 新租户管理员可登录
     $jar2 = tempnam(sys_get_temp_dir(), 'qgck');
     $r = qg_post_json('/api/auth/login', ['tenant' => $code, 'username' => 'boss', 'password' => 'E2ePass123'], ['-c', $jar2]);
@@ -752,8 +763,18 @@ class PlatformController
         if ($reason === '') {
             Response::fail('驳回原因不能为空');
         }
-        ControlDb::exec("UPDATE saas_tenant SET status = 'rejected', reject_reason = ?, reviewed_at = NOW(), reviewed_by = ? WHERE id = ?",
-            [$reason, (int) $admin['id'], (int) $t['id']]);
+        if (mb_strlen($reason) > 200) {
+            Response::fail('驳回原因不能超过 200 字');
+        }
+        // 状态守卫：只在仍为 pending 时落驳回（并发 approve 时 approve 的最终 UPDATE
+        // 同样带 AND status='pending'，两边都不会把对方的结果无条件覆盖）。
+        $n = ControlDb::exec(
+            "UPDATE saas_tenant SET status = 'rejected', reject_reason = ?, reviewed_at = NOW(), reviewed_by = ? WHERE id = ? AND status = 'pending'",
+            [$reason, (int) $admin['id'], (int) $t['id']]
+        );
+        if ($n === 0) {
+            Response::fail('租户状态已变化，请刷新后重试');
+        }
         self::audit((int) $admin['id'], 'reject', (int) $t['id'], $reason);
         Response::ok(null, '已驳回');
     }
