@@ -74,20 +74,28 @@ t('开通幂等：重复执行不产生重复数据', function () {
     prov_cleanup();
 });
 
-t('专用档本期拒绝开通', function () {
+t('专用档：未配置 provision_db 时友好拒绝且保持 pending', function () {
     prov_cleanup();
     $t = prov_make_tenant();
     ControlDb::exec("UPDATE saas_tenant SET mode = 'dedicated' WHERE id = ?", [PROV_TID]);
     $t = ControlDb::one('SELECT * FROM saas_tenant WHERE id = ?', [PROV_TID]);
+    // 用 overrideConfig 制造「未配置」环境，无论本机 config.php 是否已配 provision_db 都可复现
+    $orig = App::config();
+    $cfg = $orig;
+    unset($cfg['provision_db']);
+    App::overrideConfig($cfg);
     $msg = '';
     try {
         TenantProvisioner::provision($t, null);
     } catch (Throwable $e) {
         $msg = $e->getMessage();
+    } finally {
+        App::overrideConfig($orig);
     }
-    assert_contains($msg, '专用档', '应明确拒绝专用档');
-    $after = ControlDb::one('SELECT status FROM saas_tenant WHERE id = ?', [PROV_TID]);
+    assert_contains($msg, '未配置', '应报「专用档开通未配置」类错误');
+    $after = ControlDb::one('SELECT status, db_name FROM saas_tenant WHERE id = ?', [PROV_TID]);
     assert_eq('pending', $after['status'], '失败后状态应保持 pending');
+    assert_eq('', (string) $after['db_name'], '失败后 db_name 应保持空');
     prov_cleanup();
 });
 
