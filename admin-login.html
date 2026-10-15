@@ -15,7 +15,7 @@
       <div class="login-logo">清</div>
       <h1>平台管理</h1>
       <div class="sub">清关管理系统 · 运营后台</div>
-      <el-alert v-if="tip" :title="tip" type="warning" :closable="false" style="margin-bottom:12px" />
+      <el-alert v-if="tip" :title="tip" type="warning" :closable="false" style="margin-bottom:12px"></el-alert>
       <el-form @submit.prevent="submit" @keyup.enter="submit">
         <el-input v-model="form.username" placeholder="平台账号" size="large" clearable>
           <template #prefix><el-icon><User /></el-icon></template>
