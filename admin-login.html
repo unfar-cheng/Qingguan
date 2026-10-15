@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>平台管理登录 · 清关管理系统</title>
+<link rel="icon" href="/favicon.ico">
+<link rel="stylesheet" href="/assets/vendor/element-plus.css">
+<link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+<div id="app" v-cloak>
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="login-logo">清</div>
+      <h1>平台管理</h1>
+      <div class="sub">清关管理系统 · 运营后台</div>
+      <el-form @submit.prevent="submit" @keyup.enter="submit">
+        <el-input v-model="form.username" placeholder="平台账号" size="large" clearable>
+          <template #prefix><el-icon><User /></el-icon></template>
+        </el-input>
+        <el-input v-model="form.password" type="password" placeholder="密码" size="large" show-password>
+          <template #prefix><el-icon><Lock /></el-icon></template>
+        </el-input>
+        <el-button type="primary" size="large" :loading="loading" @click="submit">登 录</el-button>
+      </el-form>
+      <div class="login-foot">© {{ year }} 清关管理系统</div>
+    </div>
+  </div>
+</div>
+<script src="/assets/vendor/vue.global.prod.js"></script>
+<script src="/assets/vendor/element-plus.full.min.js"></script>
+<script src="/assets/vendor/icons.iife.min.js"></script>
+<script src="/assets/js/common.js"></script>
+<script>
+QG.mount(function () {
+  return {
+    data: function () {
+      return { form: { username: '', password: '' }, loading: false, year: new Date().getFullYear() };
+    },
+    methods: {
+      submit: function () {
+        var self = this;
+        if (!self.form.username || !self.form.password) {
+          return QG.warn('请输入账号和密码');
+        }
+        self.loading = true;
+        QG.post('/platform/login', self.form)
+          .then(function () { location.href = '/platform.html'; })
+          .catch(function (e) { QG.err(e); })
+          .finally(function () { self.loading = false; });
+      }
+    }
+  };
+});
+</script>
+</body>
+</html>
