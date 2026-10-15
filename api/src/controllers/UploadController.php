@@ -6,6 +6,7 @@ use QG\Auth;
 use QG\Req;
 use QG\Response;
 use QG\Router;
+use QG\Tenant;
 use QG\repos\CompanyRepo;
 use QG\repos\DictRepo;
 use QG\repos\FileRepo;
@@ -42,7 +43,7 @@ class UploadController
             Response::fail('不支持的文件类型：.' . $ext);
         }
 
-        $sub = 'order/' . date('Y') . '/' . date('m');
+        $sub = 't' . Tenant::requireId() . '/order/' . date('Y') . '/' . date('m');
         $dir = rtrim($cfg['upload_dir'], '/\\') . '/' . $sub;
         if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) {
             Response::fail('上传目录不可写：' . $dir);
