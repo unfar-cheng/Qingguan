@@ -90,3 +90,30 @@ t('专用档本期拒绝开通', function () {
     assert_eq('pending', $after['status'], '失败后状态应保持 pending');
     prov_cleanup();
 });
+
+t('active 重放且管理员被删时拒绝空哈希建号', function () {
+    prov_cleanup();
+    $t = prov_make_tenant();
+    TenantProvisioner::provision($t, null);
+    // 人为回删管理员行，模拟「首开后账号被删」的边界
+    Tenant::set(['id' => PROV_TID, 'mode' => 'shared', 'db_name' => '']);
+    Tenant::pdo()->exec("DELETE FROM sys_user WHERE tenant_id = " . PROV_TID . " AND username = 'boss9001'");
+    Tenant::set(null);
+    // 首开已把控制面哈希清空，再显式清一次锁死该状态
+    ControlDb::exec("UPDATE saas_tenant SET admin_password_hash = '' WHERE id = ?", [PROV_TID]);
+    $t2 = ControlDb::one('SELECT * FROM saas_tenant WHERE id = ?', [PROV_TID]);
+    $msg = '';
+    try {
+        TenantProvisioner::provision($t2, null);
+    } catch (Throwable $e) {
+        $msg = $e->getMessage();
+    }
+    assert_contains($msg, '哈希为空', '空哈希建号应被拒绝');
+    Tenant::set(['id' => PROV_TID, 'mode' => 'shared', 'db_name' => '']);
+    $pdo = Tenant::pdo();
+    assert_eq(0, (int) $pdo->query('SELECT COUNT(*) FROM sys_user WHERE tenant_id = ' . PROV_TID)->fetchColumn(), '不应建出空哈希账号');
+    Tenant::set(null);
+    $after = ControlDb::one('SELECT status FROM saas_tenant WHERE id = ?', [PROV_TID]);
+    assert_eq('active', $after['status'], '失败后控制面状态应保持 active');
+    prov_cleanup();
+});

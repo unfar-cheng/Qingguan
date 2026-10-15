@@ -52,6 +52,9 @@ class ProvisionRepo
         if ($exists) {
             return;
         }
+        if ($passwordHash === '') {
+            throw new \RuntimeException('管理员密码哈希为空，拒绝建号（该租户需要平台重置后重开）');
+        }
         Db::insert('sys_user', [
             'tenant_id'     => $tid,
             'username'      => $username,
