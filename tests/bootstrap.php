@@ -31,3 +31,10 @@ function qg_test_val(string $sql, array $bind = [])
     $v = $st->fetchColumn();
     return $v === false ? null : $v;
 }
+
+// 测试套件运行前清掉本机限流计数：register 5/h、platform-login 与 tenant-login 10~20/10min
+// 都会被一次全量套件耗尽，不清桶则 1 小时内重跑必 429 红。只影响开发脚手架——
+// 生产部署的 api/runtime 独立、限流逻辑分毫未动，这不是在破坏限流。
+foreach (glob(dirname(__DIR__) . '/api/runtime/ratelimit/*.json') ?: [] as $__rl_file) {
+    @unlink($__rl_file);
+}

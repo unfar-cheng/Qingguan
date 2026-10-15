@@ -6,7 +6,8 @@ require_once __DIR__ . '/bootstrap.php';
 use QG\App;
 use QG\ControlDb;
 
-// 注意：本函数消耗 platform-login 限流额度（10 次/10 分钟）；10 分钟内重复跑套件前先清 api/runtime/ratelimit/
+// 注意：本函数消耗 platform-login 限流额度（10 次/10 分钟）；tests/bootstrap.php 会在套件启动时自动清桶，
+// 但同一次套件内多次 platform_jar() 仍共享 10 次额度。
 function platform_jar(): ?string
 {
     $jar = tempnam(sys_get_temp_dir(), 'qgpf');

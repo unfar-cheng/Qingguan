@@ -1,4 +1,5 @@
 <?php
+// 限流桶由 tests/bootstrap.php 在套件启动时自动清空，可重复跑。
 require_once __DIR__ . '/lib.php';
 require_once __DIR__ . '/http.php';
 require_once __DIR__ . '/bootstrap.php';
@@ -50,4 +51,10 @@ t('合法注册落 pending，且登录提示审核中', function () {
     // 清理
     ControlDb::exec('DELETE FROM saas_audit WHERE target_type = ? AND target_id = ?', ['tenant', (int) $row['id']]);
     ControlDb::exec('DELETE FROM saas_tenant WHERE id = ?', [(int) $row['id']]);
+});
+
+t('code-check 合法未占用代码 available=true', function () {
+    if (!qg_site_up()) { return; }
+    $r = qg_curl('/api/tenant/code-check?code=ok-code1');
+    assert_contains($r, '"available":true', '合法未占用代码应可用：' . $r);
 });

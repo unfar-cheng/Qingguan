@@ -854,6 +854,7 @@ git commit -m "feat: 平台登录与租户审核接口（scope=platform 隔离�
 **文件：**
 - 创建：`api/src/controllers/TenantController.php`
 - 修改：`api/index.php`（加 `TenantController::routes($router);`，见任务 4）
+- 修改（收尾修复补录）：`api/src/controllers/AuthController.php`（login 首行加 tenant-login 限流，20 次/10 分钟/IP）
 - 测试：`tests/test_register.php`
 
 - [ ] **步骤 1：编写失败的测试**
@@ -864,6 +865,7 @@ git commit -m "feat: 平台登录与租户审核接口（scope=platform 隔离�
 
 ```php
 <?php
+// 限流桶由 tests/bootstrap.php 在套件启动时自动清空，可重复跑。
 require_once __DIR__ . '/lib.php';
 require_once __DIR__ . '/http.php';
 require_once __DIR__ . '/bootstrap.php';
@@ -916,6 +918,12 @@ t('合法注册落 pending，且登录提示审核中', function () {
     ControlDb::exec('DELETE FROM saas_audit WHERE target_type = ? AND target_id = ?', ['tenant', (int) $row['id']]);
     ControlDb::exec('DELETE FROM saas_tenant WHERE id = ?', [(int) $row['id']]);
 });
+
+t('code-check 合法未占用代码 available=true', function () {
+    if (!qg_site_up()) { return; }
+    $r = qg_curl('/api/tenant/code-check?code=ok-code1');
+    assert_contains($r, '"available":true', '合法未占用代码应可用：' . $r);
+});
 ```
 
 - [ ] **步骤 2：运行测试验证失败**
@@ -939,6 +947,7 @@ use QG\Req;
 use QG\Response;
 use QG\Router;
 use QG\Tenant;
+use PDOException;
 
 /** 租户侧公开接口（注册/品牌）+ 租户管理员 Logo 上传。 */
 class TenantController
@@ -978,18 +987,30 @@ class TenantController
             Response::fail('提交过于频繁，请 1 小时后再试', 429, 429);
         }
         $name = Req::require_('name', '企业名称');
+        if (mb_strlen($name) > 100) {
+            Response::fail('企业名称不能超过 100 字');
+        }
         $code = strtolower(trim(Req::require_('code', '租户代码')));
         if (!preg_match('/^[a-z0-9][a-z0-9-]{1,29}$/', $code)) {
             Response::fail('租户代码需为 2-30 位小写字母、数字或短横线');
         }
         $contactName = Req::require_('contact_name', '联系人');
+        if (mb_strlen($contactName) > 50) {
+            Response::fail('联系人不能超过 50 字');
+        }
         $phone = trim(Req::str('contact_phone'));
         $email = trim(Req::str('contact_email'));
         if ($phone === '' && $email === '') {
             Response::fail('手机号与邮箱至少填一个');
         }
+        if (mb_strlen($phone) > 30) {
+            Response::fail('手机号不能超过 30 位');
+        }
         if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             Response::fail('邮箱格式不正确');
+        }
+        if (mb_strlen($email) > 100) {
+            Response::fail('邮箱不能超过 100 字');
         }
         $adminUsername = Req::require_('admin_username', '管理员账号');
         if (!preg_match('/^[a-zA-Z0-9_]{3,30}$/', $adminUsername)) {
@@ -999,6 +1020,9 @@ class TenantController
         if (strlen($password) < 8) {
             Response::fail('密码至少 8 位');
         }
+        if (strlen($password) > 72) {
+            Response::fail('密码最长 72 位');
+        }
         $planId = Req::int('plan_id');
         $plan = ControlDb::one('SELECT * FROM saas_plan WHERE id = ? AND status = 1 LIMIT 1', [$planId]);
         if (!$plan) {
@@ -1007,19 +1031,27 @@ class TenantController
         if (ControlDb::val('SELECT COUNT(*) FROM saas_tenant WHERE code = ?', [$code])) {
             Response::fail('该租户代码已被占用');
         }
-        $id = ControlDb::insert('saas_tenant', [
-            'code'                => $code,
-            'name'                => $name,
-            'mode'                => $plan['mode'],
-            'plan_id'             => $planId,
-            'status'              => 'pending',
-            'contact_name'        => $contactName,
-            'contact_phone'       => $phone,
-            'contact_email'       => $email,
-            'admin_username'      => $adminUsername,
-            'admin_password_hash' => password_hash($password, PASSWORD_DEFAULT),
-            'applied_at'          => App::now(),
-        ]);
+        try {
+            $id = ControlDb::insert('saas_tenant', [
+                'code'                => $code,
+                'name'                => $name,
+                'mode'                => $plan['mode'],
+                'plan_id'             => $planId,
+                'status'              => 'pending',
+                'contact_name'        => $contactName,
+                'contact_phone'       => $phone,
+                'contact_email'       => $email,
+                'admin_username'      => $adminUsername,
+                'admin_password_hash' => password_hash($password, PASSWORD_DEFAULT),
+                'applied_at'          => App::now(),
+            ]);
+        } catch (PDOException $e) {
+            // 并发注册同 code：预检查与插入之间撞 saas_tenant.uk_code（23000），转友好报错（参照 PlatformController::approve 的并发兜底先例）。
+            if ($e->getCode() === '23000') {
+                Response::fail('该租户代码已被占用，请换一个');
+            }
+            throw $e;
+        }
         ControlDb::insert('saas_audit', [
             'platform_user_id' => null,
             'action'           => 'register',
@@ -1073,11 +1105,14 @@ class TenantController
         if (!is_dir($dir) && !mkdir($dir, 0775, true)) {
             Response::fail('无法创建存储目录');
         }
-        foreach (glob($dir . '/logo.*') ?: [] as $old) {
-            @unlink($old);
-        }
         if (!move_uploaded_file($f['tmp_name'], $dir . '/logo.' . $ext)) {
             Response::fail('保存文件失败');
+        }
+        // 先落盘成功再清旧图：只删与本次扩展名不同的文件，move 失败时旧 Logo 不会被误删。
+        foreach (glob($dir . '/logo.*') ?: [] as $old) {
+            if (basename($old) !== 'logo.' . $ext) {
+                @unlink($old);
+            }
         }
         $url = rtrim($cfg['upload_url'], '/') . '/' . $sub . '/logo.' . $ext;
         ControlDb::exec('UPDATE saas_tenant SET logo_url = ? WHERE id = ?', [$url, $tid]);
@@ -1092,6 +1127,8 @@ class TenantController
 
 运行：`php83 tests/run.php 2>&1 | tail -3 && php83 tests/guard_no_raw_business_sql.php`
 预期：`46 passed, 0 failed`（38 + 注册 4 + 平台端到端转绿 + 平台前 3 已绿）+ `guard ok`。若「合法注册」用例报限流（429），说明同 IP 一小时内注册测试跑太多次，删掉 `api/runtime/ratelimit/` 下文件再跑。
+
+验收补充（质量审查相邻发现）：`AuthController::login` 也加 tenant-login 限流——方法体首行、取参之前 `RateLimit::allow('tenant-login|' . App::remoteAddr(), 20, 600)`，超限回「尝试过于频繁，请 10 分钟后再试」（429）；`use QG\RateLimit;` 补进 use 区（`use QG\App;` 已有）。
 
 - [ ] **步骤 5：Commit**
 
@@ -2005,6 +2042,7 @@ printf '{\n  "build": "%s",\n  "time": "%s",\n  "files": 22\n}\n' "$BUILD" "$TIM
 - §4 认证：删掉/改写「平台登录目前只有 Auth 里的分支，没有注册任何 controller/route」——平台侧已由 `PlatformController` 接线，`Auth::requirePlatform()` 做 scope 隔离。
 - §7 测试基线计数更新为实际值。
 - §9 已知坑：删掉第 4 条「平台侧还没接线」、第 6 条「附件按租户分目录尚未实现」（均已落地）；补一条新坑：「schema.sql 的语句字符串内不得含 ASCII 分号（ProvisionRepo 按分号切段）」。
+- §9 已知坑再补两条 backlog：「被驳回/搁置租户的 code 永久占用，无清理机制（M3）」「saas_audit.detail 存在 JSON 与纯文本两种格式（M5）」。
 - §8 补一句：改完前端要 bump `version.json` 的 `build`（取 `git rev-parse --short=10 HEAD`）。
 
 - [ ] **步骤 4：更新设计稿状态**
