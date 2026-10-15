@@ -33,17 +33,20 @@ t('Logo：png 上传成功并写回控制面 logo_url', function () {
     $jar = admin_jar();
     if (!$jar) { return; }
     $png = tmp_png();
-    $r = qg_curl('/api/tenant/logo', ['-b', $jar, '-F', 'file=@' . $png . ';type=image/png']);
-    assert_contains($r, '"code":0', 'png 应上传成功：' . $r);
-    assert_contains($r, 't1/branding/logo.png', 'URL 应在 t1/branding 下：' . $r);
-    $url = ControlDb::val("SELECT logo_url FROM saas_tenant WHERE code = 'demo'");
-    assert_contains((string) $url, '/uploads/t1/branding/logo.png', '控制面应写回 logo_url');
-    // 清理：还原 logo_url，删除落盘文件
-    ControlDb::exec("UPDATE saas_tenant SET logo_url = '' WHERE code = 'demo'");
-    $cfg = App::config('app');
-    @unlink(rtrim($cfg['upload_dir'], '/\\') . '/t1/branding/logo.png');
-    @unlink($png);
-    @unlink($jar);
+    try {
+        $r = qg_curl('/api/tenant/logo', ['-b', $jar, '-F', 'file=@' . $png . ';type=image/png']);
+        assert_contains($r, '"code":0', 'png 应上传成功：' . $r);
+        assert_contains($r, 't1/branding/logo.png', 'URL 应在 t1/branding 下：' . $r);
+        $url = ControlDb::val("SELECT logo_url FROM saas_tenant WHERE code = 'demo'");
+        assert_contains((string) $url, '/uploads/t1/branding/logo.png', '控制面应写回 logo_url');
+    } finally {
+        // 清理放 finally：断言失败也不能把 demo 的 logo_url 留成脏值
+        ControlDb::exec("UPDATE saas_tenant SET logo_url = '' WHERE code = 'demo'");
+        $cfg = App::config('app');
+        @unlink(rtrim($cfg['upload_dir'], '/\\') . '/t1/branding/logo.png');
+        @unlink($png);
+        @unlink($jar);
+    }
 });
 
 t('Logo：svg 被拒（XSS 风险）', function () {
@@ -70,19 +73,23 @@ t('订单附件上传路径带 t<tid>/ 前缀', function () {
     $jar = admin_jar();
     if (!$jar) { return; }
     $png = tmp_png();
-    $r = qg_curl('/api/upload', ['-b', $jar, '-F', 'file=@' . $png . ';type=image/png']);
-    assert_contains($r, '"code":0', '上传应成功：' . $r);
-    assert_contains($r, '"file_path":"t1/order/', 'file_path 应带 t1/ 前缀：' . $r);
-    // 清理落盘文件
-    $cfg = App::config('app');
-    if (preg_match('/"file_path":"([^"]+)"/', $r, $m)) {
-        @unlink(rtrim($cfg['upload_dir'], '/\\') . '/' . str_replace('\\/', '/', $m[1]));
+    $r = '';
+    try {
+        $r = qg_curl('/api/upload', ['-b', $jar, '-F', 'file=@' . $png . ';type=image/png']);
+        assert_contains($r, '"code":0', '上传应成功：' . $r);
+        assert_contains($r, '"file_path":"t1/order/', 'file_path 应带 t1/ 前缀：' . $r);
+    } finally {
+        // 清理放 finally：断言失败也要删落盘附件
+        $cfg = App::config('app');
+        if (preg_match('/"file_path":"([^"]+)"/', $r, $m)) {
+            @unlink(rtrim($cfg['upload_dir'], '/\\') . '/' . str_replace('\\/', '/', $m[1]));
+        }
+        @unlink($png);
+        @unlink($jar);
     }
-    @unlink($png);
-    @unlink($jar);
 });
 
 t('附件搬迁脚本 dry-run 可执行且幂等', function () {
-    $out = (string) shell_exec('cd ' . escapeshellarg(dirname(__DIR__)) . ' && php83 scripts/migrate_uploads_namespace.php --dry-run 2>&1');
+    $out = (string) shell_exec('cd ' . escapeshellarg(dirname(__DIR__)) . ' && php83 scripts/migrate_uploads_namespace.php --dry-run 2>&1 | tail -20');
     assert_contains($out, 'dry-run', '应输出 dry-run 摘要：' . $out);
 });
