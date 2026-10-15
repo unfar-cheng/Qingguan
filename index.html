@@ -20,8 +20,9 @@
     <!-- 左侧导航 -->
     <aside class="sidebar" :class="{collapsed:collapse}">
       <div class="brand">
-        <div class="dot">清</div>
-        <div class="txt">清关管理系统</div>
+        <img v-if="user.tenant_logo" :src="user.tenant_logo" class="logo" alt="">
+        <div v-else class="dot">清</div>
+        <div class="txt">{{ user.tenant_name || '清关管理系统' }}</div>
       </div>
       <div class="menu-scroll">
         <el-menu :default-active="active" :collapse="collapse" :collapse-transition="false" unique-opened @select="onSelect">

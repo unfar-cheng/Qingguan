@@ -12,11 +12,12 @@
 <div id="app">
   <div class="login-wrap">
     <div class="login-card">
-      <div class="login-logo">清</div>
-      <h1>清关管理系统</h1>
+      <img v-if="brand.logo" :src="brand.logo" class="login-logo-img" alt="">
+      <div v-else class="login-logo">清</div>
+      <h1>{{ brand.name || '清关管理系统' }}</h1>
       <div class="sub">中美海运整柜 · ISF申报 / 清关 / 提拆派 / 查验</div>
       <el-form @submit.prevent="submit" @keyup.enter="submit">
-        <el-input v-model="form.tenant" placeholder="请输入租户代码" size="large" clearable>
+        <el-input v-model="form.tenant" placeholder="请输入租户代码" size="large" clearable @blur="onTenantBlur">
           <template #prefix><el-icon><OfficeBuilding /></el-icon></template>
         </el-input>
         <el-input v-model="form.username" placeholder="请输入账号" size="large" clearable>
@@ -39,9 +40,17 @@
 QG.mount(function () {
   return {
     data: function () {
-      return { form: { tenant: '', username: '', password: '' }, loading: false, year: new Date().getFullYear() };
+      return { form: { tenant: '', username: '', password: '' }, brand: { name: '', logo: '' }, loading: false, year: new Date().getFullYear() };
     },
     methods: {
+      onTenantBlur: function () {
+        var self = this;
+        var code = (self.form.tenant || '').trim();
+        if (!code) { self.brand = { name: '', logo: '' }; return; }
+        QG.get('/tenant/branding', { code: code }).then(function (d) {
+          self.brand = (d && d.found) ? { name: d.name, logo: d.logo_url } : { name: '', logo: '' };
+        }).catch(function () {});
+      },
       submit: function () {
         var self = this;
         if (!self.form.tenant || !self.form.username || !self.form.password) {

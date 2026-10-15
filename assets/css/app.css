@@ -197,3 +197,7 @@ a{color:var(--qg-blue);text-decoration:none}
   .plan-grid{grid-template-columns:1fr}
   .addr-grid{grid-template-columns:1fr}
 }
+
+/* 租户 Logo */
+.brand .logo { width: 26px; height: 26px; border-radius: 7px; object-fit: contain; background: #fff; flex: none; }
+.login-logo-img { width: 56px; height: 56px; border-radius: 12px; object-fit: contain; margin: 0 auto 12px; display: block; background: #fff; }
