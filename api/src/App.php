@@ -40,6 +40,12 @@ class App
         return '0.0.0.0';
     }
 
+    /** 真实来源 IP。本部署没有可信反代，绝不能用 X-Forwarded-For（可伪造）——限流与审计防伪用它。 */
+    public static function remoteAddr(): string
+    {
+        return (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+    }
+
     public static function now(): string
     {
         return date('Y-m-d H:i:s');

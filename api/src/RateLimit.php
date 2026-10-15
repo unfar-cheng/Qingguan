@@ -22,10 +22,14 @@ class RateLimit
         $now  = time();
         $fp   = @fopen($file, 'c+');
         if ($fp === false) {
+            error_log('[RateLimit] 存储目录不可写，限流已放行：' . $dir);
+            return true;
+        }
+        if (!@flock($fp, LOCK_EX)) {
+            fclose($fp);
             return true;
         }
         try {
-            flock($fp, LOCK_EX);
             $raw  = stream_get_contents($fp);
             $hits = $raw ? json_decode($raw, true) : [];
             if (!is_array($hits)) {
