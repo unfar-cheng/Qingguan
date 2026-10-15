@@ -770,6 +770,9 @@ FLUSH PRIVILEGES;
 
 发布前先备份：`sudo mysqldump -u root --databases qingguan qingguan_control --single-transaction > /var/backups/qingguan/pre-dedicated-$(date +%Y%m%d).sql`。
 
+建账号前先确认 validate_password 未启用（派生密码为 64 位小写 hex，会被 MEDIUM/STRONG 策略拒绝）：
+`SELECT * FROM mysql.component WHERE component_urn LIKE '%validate_password%';`（有行 = 已启用 → 先 `UNINSTALL COMPONENT 'file://component_validate_password';` 或调整策略，再执行上面的 CREATE USER）。
+
 - [ ] **步骤 8.3：breeder config.php 补 `provision_db` 段**（手工，密码 `<生产强密码>`，勿入库）。
 
 - [ ] **步骤 8.4：rsync 发布**（与既有发布流程一致，排除 `.git` / `api/config/config.php` / `uploads/` / `api/runtime/` / `ops/apache/breeder/` / `*.swp`，不加 `--delete`，`sudo rsync` 落位 + `chown www-data` + `sudo systemctl reload apache2`）。
