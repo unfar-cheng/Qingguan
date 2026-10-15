@@ -99,6 +99,31 @@ t('专用档：未配置 provision_db 时友好拒绝且保持 pending', functio
     prov_cleanup();
 });
 
+t('专用档：provision_db 已配置但不可达时失败且保持 pending', function () {
+    prov_cleanup();
+    $t = prov_make_tenant();
+    ControlDb::exec("UPDATE saas_tenant SET mode = 'dedicated' WHERE id = ?", [PROV_TID]);
+    $t = ControlDb::one('SELECT * FROM saas_tenant WHERE id = ?', [PROV_TID]);
+    // port=1 连接立即被拒：DDL 一条都不会执行，用例零副作用（不建任何库/账号）
+    $orig = App::config();
+    $cfg = $orig;
+    $cfg['provision_db'] = ['host' => '127.0.0.1', 'port' => 1, 'user' => 'x', 'pass' => 'y'];
+    App::overrideConfig($cfg);
+    $msg = '';
+    try {
+        TenantProvisioner::provision($t, null);
+    } catch (Throwable $e) {
+        $msg = $e->getMessage();
+    } finally {
+        App::overrideConfig($orig);
+    }
+    assert_true($msg !== '', '连接不可达应抛异常且消息非空');
+    $after = ControlDb::one('SELECT status, db_name FROM saas_tenant WHERE id = ?', [PROV_TID]);
+    assert_eq('pending', $after['status'], '失败后状态应保持 pending');
+    assert_eq('', (string) $after['db_name'], '失败后 db_name 应保持空');
+    prov_cleanup();
+});
+
 t('active 重放且管理员被删时拒绝空哈希建号', function () {
     prov_cleanup();
     $t = prov_make_tenant();
