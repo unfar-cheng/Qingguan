@@ -66,6 +66,7 @@ class Auth
         ]);
         $_COOKIE[self::COOKIE] = $token;
         Tenant::set(['id' => (int) $tenant['id'], 'mode' => $tenant['mode'], 'db_name' => $tenant['db_name']]);
+        unset($user['password_hash']);
         self::$user = $user;
     }
 
@@ -186,6 +187,7 @@ class Auth
             'secure'   => $secure,
         ]);
         $_COOKIE[self::COOKIE] = $token;
+        unset($puser['password_hash']);
         $puser['scope'] = 'platform';
         self::$user = $puser;
     }
