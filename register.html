@@ -12,6 +12,7 @@
   .plan-item { border: 1px solid #dcdfe6; border-radius: 10px; padding: 14px 16px; margin-bottom: 10px; cursor: pointer; }
   .plan-item.active { border-color: var(--qg-blue); background: #f0f6ff; }
   .plan-price { color: #e6a23c; font-weight: 600; }
+  .reg-card .sub { margin: 0 0 20px; font-size: 13px; color: #909399; }
 </style>
 </head>
 <body>
@@ -21,7 +22,7 @@
       <template v-if="!done">
         <h1 style="margin:0 0 4px">注册企业账号</h1>
         <div class="sub" style="margin-bottom:20px">提交后平台将在 1 个工作日内完成审核</div>
-        <el-form label-width="100px" @submit.prevent="submit">
+        <el-form label-width="100px" @submit.prevent="submit" @keyup.enter="submit">
           <el-form-item label="企业名称" required>
             <el-input v-model="form.name" placeholder="营业执照上的企业全称" @blur="suggestCode"></el-input>
           </el-form-item>
@@ -72,7 +73,7 @@ QG.mount(function () {
       return {
         form: { name: '', code: '', contact_name: '', contact_phone: '', contact_email: '',
                 admin_username: '', password: '', password2: '', plan_id: 0 },
-        plans: [], codeOk: false, codeMsg: '', loading: false, done: false
+        plans: [], codeOk: false, codeMsg: '', checkedCode: '', loading: false, done: false
       };
     },
     created: function () {
@@ -91,7 +92,8 @@ QG.mount(function () {
         var self = this;
         var code = (self.form.code || '').trim().toLowerCase();
         self.form.code = code;
-        if (!code) { self.codeOk = false; self.codeMsg = ''; return; }
+        if (!code) { self.codeOk = false; self.codeMsg = ''; self.checkedCode = ''; return; }
+        self.checkedCode = code;
         QG.get('/tenant/code-check', { code: code }).then(function (d) {
           self.codeOk = !!d.available;
           self.codeMsg = d.available ? '✓ 该代码可用' : (d.msg || '该代码不可用');
@@ -105,8 +107,13 @@ QG.mount(function () {
         }
         if (!f.contact_phone && !f.contact_email) { return QG.warn('手机号与邮箱至少填一个'); }
         if (f.password.length < 8) { return QG.warn('密码至少 8 位'); }
+        if (f.password.length > 72) { return QG.warn('密码过长'); }
         if (f.password !== f.password2) { return QG.warn('两次输入的密码不一致'); }
         if (!f.plan_id) { return QG.warn('请选择套餐'); }
+        if (self.checkedCode !== (f.code || '').trim().toLowerCase()) {
+          self.checkCode();
+          return QG.warn('租户代码已修改，请确认可用后再提交');
+        }
         if (!self.codeOk) { return QG.warn('请先确认租户代码可用'); }
         self.loading = true;
         QG.post('/tenant/register', f)
