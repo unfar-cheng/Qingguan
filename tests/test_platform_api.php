@@ -12,7 +12,12 @@ function platform_jar(): ?string
     $r = qg_post_json('/api/platform/login', ['username' => 'platform', 'password' => 'Platform@12345'], ['-c', $jar]);
     if (strpos($r, '"code":0') === false) {
         @unlink($jar);
-        return null; // 未播种平台超管或站点未起
+        // 区分「未播种」（静默跳过）与「播种了但登录失败」（必须红，不能被跳过掩盖）
+        $n = (int) ControlDb::val('SELECT COUNT(*) FROM saas_platform_user WHERE username = ? AND status = 1', ['platform']);
+        if ($n === 0) {
+            return null; // 未播种平台超管
+        }
+        assert_true(false, '平台超管已播种但登录失败：' . $r);
     }
     return $jar;
 }
@@ -41,4 +46,65 @@ t('未登录调平台接口被 401', function () {
     if (!qg_site_up()) { return; }
     $r = qg_curl('/api/platform/tenants');
     assert_contains($r, '"code":401', '未登录应 401：' . $r);
+});
+
+t('状态机守卫：rejected 租户 approve/reject/suspend/enable 全部被拒', function () {
+    if (!qg_site_up()) { return; }
+    $jar = platform_jar();
+    if (!$jar) { echo "      平台超管不可用，跳过\n"; return; }
+    $tid = 999901;
+    try {
+        ControlDb::exec('DELETE FROM saas_tenant WHERE id = ?', [$tid]);
+        ControlDb::exec("INSERT INTO saas_tenant (id, code, name, mode, status, admin_username, applied_at) VALUES (?, 'sm999901', '状态机冒烟', 'shared', 'rejected', 'boss', NOW())", [$tid]);
+        $expect = ['approve' => '当前状态不可审核通过', 'reject' => '仅待审核的租户可驳回', 'suspend' => '仅已开通的租户可停用', 'enable' => '仅已停用的租户可重新启用'];
+        foreach ($expect as $action => $msg) {
+            $body = $action === 'reject' ? ['reason' => 'x'] : [];
+            $r = qg_post_json('/api/platform/tenants/' . $tid . '/' . $action, $body, ['-b', $jar]);
+            assert_contains($r, $msg, "{$action} 应被状态机拒绝：{$r}");
+        }
+        $row = ControlDb::one('SELECT status FROM saas_tenant WHERE id = ?', [$tid]);
+        assert_eq('rejected', $row['status'], '状态不应被改动');
+    } finally {
+        ControlDb::exec('DELETE FROM saas_tenant WHERE id = ?', [$tid]);
+        ControlDb::exec("DELETE FROM saas_audit WHERE target_type = 'tenant' AND target_id = ?", [$tid]);
+    }
+    @unlink($jar);
+});
+
+t('reject 参数校验：空原因 / 超 200 字被拒，合法原因落库', function () {
+    if (!qg_site_up()) { return; }
+    $jar = platform_jar();
+    if (!$jar) { echo "      平台超管不可用，跳过\n"; return; }
+    $tid = 999902;
+    try {
+        ControlDb::exec('DELETE FROM saas_tenant WHERE id = ?', [$tid]);
+        ControlDb::exec("INSERT INTO saas_tenant (id, code, name, mode, status, admin_username, applied_at) VALUES (?, 'sm999902', '驳回校验冒烟', 'shared', 'pending', 'boss2', NOW())", [$tid]);
+        $r = qg_post_json('/api/platform/tenants/' . $tid . '/reject', [], ['-b', $jar]);
+        assert_contains($r, '驳回原因不能为空', '空原因应被拒：' . $r);
+        $r = qg_post_json('/api/platform/tenants/' . $tid . '/reject', ['reason' => str_repeat('超', 201)], ['-b', $jar]);
+        assert_contains($r, '不能超过 200 字', '超长原因应被拒：' . $r);
+        $row = ControlDb::one('SELECT status, reject_reason, reviewed_by FROM saas_tenant WHERE id = ?', [$tid]);
+        assert_eq('pending', $row['status'], '两次失败后状态不应变');
+        $r = qg_post_json('/api/platform/tenants/' . $tid . '/reject', ['reason' => '资料不齐全'], ['-b', $jar]);
+        assert_contains($r, '"code":0', '合法原因应通过：' . $r);
+        $row = ControlDb::one('SELECT status, reject_reason, reviewed_by FROM saas_tenant WHERE id = ?', [$tid]);
+        assert_eq('rejected', $row['status'], '合法 reject 后应 rejected');
+        assert_eq('资料不齐全', $row['reject_reason'], '驳回原因应落库');
+        assert_true((int) $row['reviewed_by'] > 0, 'reviewed_by 应记录审核人');
+    } finally {
+        ControlDb::exec('DELETE FROM saas_tenant WHERE id = ?', [$tid]);
+        ControlDb::exec("DELETE FROM saas_audit WHERE target_type = 'tenant' AND target_id = ?", [$tid]);
+    }
+    @unlink($jar);
+});
+
+t('tenants 列表不泄露敏感字段', function () {
+    if (!qg_site_up()) { return; }
+    $jar = platform_jar();
+    if (!$jar) { echo "      平台超管不可用，跳过\n"; return; }
+    $r = qg_curl('/api/platform/tenants', ['-b', $jar]);
+    assert_contains($r, '"code":0', '平台列表应可访问：' . $r);
+    assert_true(strpos($r, 'password_hash') === false, '列表不得出现 password_hash：' . $r);
+    assert_true(strpos($r, '"db_name":') === false, '列表不得出现 db_name：' . $r);
+    @unlink($jar);
 });
