@@ -61,5 +61,6 @@ $router = new \QG\Router();
 \QG\controllers\FinanceController::routes($router);
 \QG\controllers\SystemController::routes($router);
 \QG\controllers\UploadController::routes($router);
+\QG\controllers\PlatformController::routes($router);
 
 $router->dispatch($method, $path);
