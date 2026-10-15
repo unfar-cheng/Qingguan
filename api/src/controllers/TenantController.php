@@ -177,7 +177,9 @@ class TenantController
             }
         }
         $url = rtrim($cfg['upload_url'], '/') . '/' . $sub . '/logo.' . $ext;
-        ControlDb::exec('UPDATE saas_tenant SET logo_url = ? WHERE id = ?', [$url, $tid]);
-        Response::ok(['logo_url' => $url], 'Logo 已更新');
+        // 版本参数：同扩展名覆盖时 URL 也在变，所有消费端（登录页/外壳/配置页预览）自动失效缓存
+        $versioned = $url . '?v=' . time();
+        ControlDb::exec('UPDATE saas_tenant SET logo_url = ? WHERE id = ?', [$versioned, $tid]);
+        Response::ok(['logo_url' => $versioned], 'Logo 已更新');
     }
 }

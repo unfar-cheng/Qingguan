@@ -22,6 +22,14 @@
   <div class="card">
     <h3 class="card-title">企业信息</h3>
     <el-form label-width="130px" style="max-width:680px">
+      <el-form-item label="企业 Logo">
+        <div style="display:flex;align-items:center;gap:12px">
+          <img v-if="logoUrl" :src="logoUrl" style="height:44px;border:1px solid #ebeef5;border-radius:8px;padding:3px;background:#fff">
+          <el-button size="small" :disabled="!isAdmin" @click="$refs.logoFile.click()">选择图片</el-button>
+          <input ref="logoFile" type="file" accept=".png,.jpg,.jpeg" style="display:none" @change="uploadLogo">
+          <span class="muted" style="font-size:12px">PNG/JPG ≤2MB，展示在登录页与系统左上角{{ isAdmin ? '' : '（仅管理员可更换）' }}</span>
+        </div>
+      </el-form-item>
       <el-form-item label="公司名称"><el-input v-model="cfg['company.name']"></el-input></el-form-item>
       <el-form-item label="联系电话"><el-input v-model="cfg['company.tel']"></el-input></el-form-item>
       <el-form-item label="公司地址"><el-input v-model="cfg['company.address']"></el-input></el-form-item>
@@ -99,9 +107,16 @@ QG.mount(function () {
     data: function () {
       var c = {};
       KEYS.forEach(function (k) { c[k] = ''; });
-      return { cfg: c, loading: false, saving: false };
+      return { cfg: c, logoUrl: '', isAdmin: false, loading: false, saving: false };
     },
-    created: function () { this.load(); },
+    created: function () {
+      var self = this;
+      self.load();
+      QG.me().then(function (u) {
+        self.isAdmin = (u.role_code === 'tenant_admin');
+        self.logoUrl = u.tenant_logo || '';
+      }).catch(function () {});
+    },
     methods: {
       load: function () {
         var self = this;
@@ -121,6 +136,18 @@ QG.mount(function () {
           .then(function () { QG.toast('已保存'); })
           .catch(function (e) { QG.err(e); })
           .finally(function () { self.saving = false; });
+      },
+      uploadLogo: function (e) {
+        var self = this;
+        var f = e.target.files && e.target.files[0];
+        e.target.value = '';
+        if (!f) { return; }
+        QG.upload(f, {}, '/tenant/logo').then(function (d) {
+          var u = d.logo_url || '';
+          /* 后端返回的 URL 已带 ?v= 版本参数，已有查询串时用 & 追加预览去缓存参数 */
+          self.logoUrl = u + (u.indexOf('?') >= 0 ? '&_=' : '?_=') + Date.now();
+          QG.toast('Logo 已更新，刷新页面后外壳与登录页生效');
+        }).catch(function (e2) { QG.err(e2); });
       }
     }
   };
