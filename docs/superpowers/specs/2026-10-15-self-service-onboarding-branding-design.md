@@ -86,7 +86,7 @@
 - 新增 `api/src/controllers/PlatformController.php`（与现有 7 个 controller 同构），在 `api/index.php` 里注册。**路由统一放 `/api/platform/...` 前缀下**，便于集中鉴权。
 - `Auth` 增强：
   - `Auth::requirePlatform()`：登录态且 `scope==='platform'`，否则 401/403。
-  - `Auth::platformUser()`：返回 `saas_platform_user` 行。
+  - `Auth::platformUser()`：返回 `saas_platform_user` 行。（实现时收窄为 `requirePlatform()` 直接返回 `Auth::user()` 的 platform 分支结果，功能等价，未单设该方法。）
   - 平台登录沿用现有 HMAC 令牌方案，payload `{scope:'platform', puid, exp}`；登录成功更新 `last_login_at/ip`。
 - 登录接口与注册接口都要**限流**（见 5.2），防爆破与防灌共用一个小组件。
 
