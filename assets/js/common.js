@@ -109,6 +109,8 @@
         try { j = JSON.parse(t); }
         catch (e) { throw new Error('接口返回异常：' + t.slice(0, 120)); }
         if (j.code === 401) {
+          /* QG_LOGIN_URL 语义：把「本窗口」送去指定登录页。顶层平台页在 common.js 之前设它
+             以跳 admin-login.html；子页面若自设，只跳自己（外壳不受影响，也不会被劫持）。 */
           var loginUrl = w.QG_LOGIN_URL || '/login.html';
           if (w.top !== w && !w.QG_LOGIN_URL) { w.top.location.href = loginUrl; }
           else { w.location.href = loginUrl; }
