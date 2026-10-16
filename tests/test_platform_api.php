@@ -108,7 +108,7 @@ t('tenants 列表不泄露敏感字段', function () {
     try {
         ControlDb::exec('DELETE FROM saas_tenant WHERE id = ?', [$tid]);
         ControlDb::exec("INSERT INTO saas_tenant (id, code, name, mode, status, db_name, admin_username, applied_at) VALUES (?, 'sm999903', '库名展示冒烟', 'dedicated', 'active', 'qingguan_t_sm999903', 'boss', NOW())", [$tid]);
-        $r = qg_curl('/api/platform/tenants', ['-b', $jar]);
+        $r = qg_curl('/api/platform/tenants?pageSize=500', ['-b', $jar]);
         assert_contains($r, '"code":0', '平台列表应可访问：' . $r);
         assert_true(strpos($r, 'password_hash') === false, '列表不得出现 password_hash：' . $r);
         // db_name 自专用档方案（spec 2026-10-15 前端节：dedicated 行展示库名）起是平台列表的合法字段，
