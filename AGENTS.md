@@ -32,8 +32,8 @@
 全部在 `/data/qingguan/app` 下执行：
 
 ```bash
-# 跑测试（73 个用例；HTTP 用例需要站点在跑，否则自动跳过）
-php83 tests/run.php                     # 期望 73 passed, 0 failed
+# 跑测试（78 个用例；HTTP 用例需要站点在跑，否则自动跳过）
+php83 tests/run.php                     # 期望 78 passed, 0 failed
 php83 tests/guard_no_raw_business_sql.php   # 期望 guard ok
 
 # 只跑部分 / 指向临时站点
@@ -111,6 +111,8 @@ ops/                   Apache vhost 与 php83-fpm 池配置
 
 **专用档（dedicated）开通**（2026-10-15 起已实现，规格见 `docs/superpowers/specs/2026-10-15-dedicated-provisioning-design.md`）：审核通过即全自动 `CREATE DATABASE qingguan_t_<code>` + 建 `qg_<code>` 账号（密码 = HMAC-SHA256('db-pass:'+code, app.secret) 的 hex，**不落库**，`api/src/DedicatedDb.php` 派生）+ 灌 schema.sql 播种。全链路幂等，失败留 pending，重新点「通过」即续跑；**系统绝不自动 DROP**，库/账号清理走手工。`app.secret` 轮换会使全部专用库账号密码失效——用新 secret 现算派生值，对每个账号跑 `ALTER USER `qg_<code>`@`<host>` IDENTIFIED BY '<新派生hex>'`。专用库出现后，表结构迁移 = 共享库跑一遍 + `php83 scripts/migrate_dedicated.php <file>` 逐库跑（`--dry-run` 先看清单）。运维监控点：`saas_audit` 的 `provision_failed` 记录即开通失败告警源（当前人工查看）。secret 轮换时生成新派生值的现成命令：`php83 -r 'echo hash_hmac("sha256", "db-pass:<code>", "<新secret>");'`。
 
+**账单与服务期**（2026-10-16 起，规格见 `docs/superpowers/specs/2026-10-16-billing-expiry-design.md`）：控制面 `saas_bill`（unpaid/paid/void 状态机，金额为生成时套餐价快照）+ `saas_tenant.expires_at/bill_cycle`。注册选周期即生成首张账单；审核通过 `expires_at=NOW()`（30 天试用）；平台「确认收款」在事务内按 `Billing::nextExpiry` 三分支重算到期日（未到期/宽限内=旧值+周期；超宽限=now+周期）；宽限 30 天（`Billing::GRACE_DAYS`），超宽限登录与会话一律拦截；`expires_at` 为 NULL 的租户（如 demo）永不参与到期逻辑。租户侧条幅与「账单中心」页消费 `/auth/me` 的 `billing` 字段。
+
 **仓储层是硬约束（有守卫脚本）**：`tests/guard_no_raw_business_sql.php` 会红灯，如果
 1. `api/src/repos/` **之外**（`Db.php`/`ControlDb.php` 除外）出现 `Db::all|one|val|exec|insert|update`；
 2. 仓储里某个引号字符串含 SELECT/INSERT/UPDATE/DELETE 且提到 21 张业务表之一，却没出现 `tenant_id`。
@@ -159,7 +161,7 @@ mysql -u<user> -p <库名> -e "SET @tenant_id := <id>; SOURCE db/schema.sql;"
 - 零依赖自建断言器：`tests/lib.php` 提供 `t($name, $fn)`、`assert_true/assert_eq/assert_contains`；`tests/run.php` glob `tests/test_*.php` 后逐个跑，打印 `PASS/FAIL` 并在失败时退出非零。
 - **测试连的是 `api/config/config.php` 指向的真实开发库**（`bootstrap.php` 读 `App::config('db')` / `control_db`）——**没有独立测试库，也没有读 `.env`**。隔离靠使用高号段合成租户 id（9001/9002/9101…）并在用例结束时清理。因为直连真实库，别在测试里做破坏性操作。
 - HTTP 用例走 **`curl` 命令行**（`tests/http.php`，因为 breeder 上没装 `php-curl`），默认打 `QG_BASE` 或 `https://qingguan-dev.sflswall.com.cn`；站点不通会**自动跳过**（`qg_site_up()` 探测 `/api/auth/me`）。部分用例依赖已播种的 `demo / admin / admin123`。
-- 预期基线：`php83 tests/run.php` → `73 passed, 0 failed`；守卫 → `guard ok`。**这两个不绿不要提交。**
+- 预期基线：`php83 tests/run.php` → `78 passed, 0 failed`；守卫 → `guard ok`。**这两个不绿不要提交。**
 - 限流与测试的交互：`register` 5 次/小时/IP、`platform-login` 10 次/10 分钟、`tenant-login` 20 次/10 分钟（存 `api/runtime/ratelimit/`）。一次全量套件恰好用满部分桶——**`tests/bootstrap.php` 在套件启动时会自动清空该目录**，所以重复跑全绿；手工打接口验证时若撞 429，`rm -rf api/runtime/ratelimit/*` 即可。
 - **结构把闸**：`tests/test_schema_parity.php` 会把 `db/schema.sql` 里的 21 条 CREATE TABLE 落到当前库（`__parity__` 前缀临时表）再与真实表逐列逐键比对——**改了 `db/migration_*.sql` 的结构却忘了同步 `db/schema.sql` 的 DDL 段时它会红**。这是「每次表结构变更也要维护好 db/schema.sql」的强制手段。
 
@@ -181,9 +183,10 @@ mysql -u<user> -p <库名> -e "SET @tenant_id := <id>; SOURCE db/schema.sql;"
 4. **平台侧已接线但权限树仍有层级坑**：`SystemController::permissionTree()` 还需支持任意层级（按钮是第 3 级），否则按钮权限会静默消失。
 5. 下拉缓存的正则 `OPTS_SOURCES` 必须是 `dicts?`（复数）——早先写成单数 `dict` 造成过「新字典项不出现在下拉框」的真实 bug。
 6. 附件路径已按租户分目录 `uploads/t<tid>/order/Y/m/`（2026-10-15 起），存量旧路径 `order/...` 由 `php83 scripts/migrate_uploads_namespace.php` 搬迁（幂等，先 `--dry-run`）。**在 breeder 上跑迁移要用 `sudo -u www-data php83 ...`（或跑完 `chown -R www-data:www-data /opt/qingguan/uploads`）**——root 跑会让新目录属主变 root，php-fpm 之后写不进去。
-7. 面向物理隔离档（`mode='dedicated'`）的专用库目前一台都还没有（开通已全自动，等首个客户）；写多库逻辑时要能正确处理「0 个专用库」。开通播种器对专用档全自动开通（2026-10-15 起）。
+7. **面向物理隔离档（`mode='dedicated'`）**：专用库已随 woniu 租户首次落地（`qingguan_t_woniu`）；写多库逻辑时要能正确处理「N 个专用库」，迁移扇出用 `php83 scripts/migrate_dedicated.php <file>`（`--dry-run` 先看清单）。开通播种器对专用档全自动开通（2026-10-15 起）。
 8. **schema.sql 的语句字符串内不得含 ASCII 分号**：开通播种由 `ProvisionRepo::splitStatements()` 去注释行后按 `;` 切段执行，值里混入 `;` 会切坏语句。同理行尾注释必须 `-- `（带空格）。改 schema.sql 前先看 `ProvisionRepo` 头注释的三条约定。
 9. **`qg_provision` 是高价值凭据但权限收敛**：仅全局 CREATE/CREATE USER + `qingguan_t_%`.* 的 ALL——读不到任何现有业务数据。provision_db 未配置时专用档开通报「未配置」并留 pending，共享档不受影响。专用档租户上下文必须带 `code`（派生凭据用），手工 `Tenant::set` 造 dedicated 上下文而不带 code 会抛「缺少 code」。
+10. **`saas_bill` 确认收款必须走 `PlatformController::confirmBill` 的事务路径**（账单 paid 与 `saas_tenant.expires_at` 重算两写原子）——手工改库会造成账单与到期日不一致，且 paid 是终态无法重放。
 
 ## 10. 提交与分支
 
