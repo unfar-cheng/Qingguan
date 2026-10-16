@@ -30,7 +30,7 @@
       <el-table-column prop="name" label="企业名称" min-width="170"></el-table-column>
       <el-table-column prop="plan_name" label="套餐" width="140"></el-table-column>
       <el-table-column label="隔离档" width="150">
-        <template #default="s">{{ s.row.mode === 'dedicated' ? ('独享 ' + (s.row.db_name || '')) : '共享' }}</template>
+        <template #default="s">{{ s.row.mode === 'dedicated' ? ('独享 ' + (s.row.db_name || ('qingguan_t_' + s.row.code))) : '共享库' }}</template>
       </el-table-column>
       <el-table-column label="联系人" min-width="150">
         <template #default="s">{{ s.row.contact_name }} {{ s.row.contact_phone || s.row.contact_email }}</template>
