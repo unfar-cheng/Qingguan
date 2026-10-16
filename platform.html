@@ -37,8 +37,8 @@
       <el-table-column label="隔离档" width="150">
         <template #default="s">{{ s.row.mode === 'dedicated' ? ('独享 ' + (s.row.db_name || ('qingguan_t_' + s.row.code))) : '共享库' }}</template>
       </el-table-column>
-      <el-table-column label="有效期" width="170">
-        <template #default="s">{{ expiryText(s.row) }}</template>
+      <el-table-column label="有效期" width="210">
+        <template #default="s"><el-tag :type="expiryState(s.row).type">{{ expiryState(s.row).label }}</el-tag></template>
       </el-table-column>
       <el-table-column label="联系人" min-width="150">
         <template #default="s">{{ s.row.contact_name }} {{ s.row.contact_phone || s.row.contact_email }}</template>
@@ -159,7 +159,7 @@ QG.mount(function () {
         view: 'tenants',
         aRows: [], aTotal: 0, aLoading: false, aAction: '', aTenant: '', aq: { page: 1, pageSize: 20 },
         bRows: [], bTotal: 0, bLoading: false, bStatus: '', bTenant: '', bq: { page: 1, pageSize: 20 },
-        auditActions: ['register', 'approve', 'reject', 'suspend', 'enable', 'login', 'provision_failed']
+        auditActions: ['register', 'approve', 'reject', 'suspend', 'enable', 'login', 'bill_paid', 'bill_void', 'provision_failed']
       };
     },
     created: function () {
@@ -222,19 +222,20 @@ QG.mount(function () {
             .catch(function (e) { QG.err(e); });
         }).catch(function () {});
       },
-      expiryText: function (row) {
-        if (!row.expires_at) { return '—'; }
+      expiryState: function (row) {
+        if (!row.expires_at) { return { label: '—', type: 'info' }; }
+        var date = row.expires_at.slice(0, 10);
         var d = Math.ceil((new Date(row.expires_at.replace(' ', 'T')).getTime() - Date.now()) / 86400000);
-        if (d > 30) { return row.expires_at.slice(0, 10); }
-        if (d > 0) { return row.expires_at.slice(0, 10) + '（剩 ' + d + ' 天）'; }
+        if (d > 30) { return { label: date, type: 'success' }; }
+        if (d > 0) { return { label: date + '（剩 ' + d + ' 天）', type: 'warning' }; }
         var g = d + 30;
-        return g > 0 ? row.expires_at.slice(0, 10) + '（宽限剩 ' + g + ' 天）' : row.expires_at.slice(0, 10) + '（已过期）';
+        return g > 0 ? { label: date + '（宽限剩 ' + g + ' 天）', type: 'danger' } : { label: date + '（已过期）', type: 'danger' };
       },
       auditText: function (a) {
-        return { register: '注册申请', approve: '通过开通', reject: '驳回', suspend: '停用', enable: '启用', login: '平台登录', provision_failed: '开通失败' }[a] || a;
+        return { register: '注册申请', approve: '通过开通', reject: '驳回', suspend: '停用', enable: '启用', login: '平台登录', bill_paid: '确认收款', bill_void: '账单作废', provision_failed: '开通失败' }[a] || a;
       },
       auditTag: function (a) {
-        return { approve: 'success', enable: 'success', reject: 'danger', provision_failed: 'danger', suspend: 'warning', register: 'info', login: 'info' }[a] || 'info';
+        return { approve: 'success', enable: 'success', reject: 'danger', bill_paid: 'success', bill_void: 'warning', provision_failed: 'danger', suspend: 'warning', register: 'info', login: 'info' }[a] || 'info';
       },
       auditRowClass: function (o) {
         return o.row && o.row.action === 'provision_failed' ? 'audit-fail-row' : '';
@@ -248,8 +249,8 @@ QG.mount(function () {
       approve: function (row) {
         var self = this;
         var tip = row.mode === 'dedicated'
-          ? '确定通过「' + row.name + '」？将创建独立数据库 ' + (row.db_name || 'qingguan_t_' + row.code) + '、专用账号并播种默认数据，创建管理员 ' + row.admin_username + '。'
-          : '确定通过「' + row.name + '」？将立即播种默认数据并创建管理员 ' + row.admin_username + '。';
+          ? '确定通过「' + row.name + '」？将创建独立数据库 ' + (row.db_name || 'qingguan_t_' + row.code) + '、专用账号并播种默认数据，创建管理员 ' + row.admin_username + '。未付款前为 30 天试用期，可随时在账单中心续费。'
+          : '确定通过「' + row.name + '」？将立即播种默认数据并创建管理员 ' + row.admin_username + '。未付款前为 30 天试用期，可随时在账单中心续费。';
         QG.confirm(tip).then(function () {
           QG.post('/platform/tenants/' + row.id + '/approve', {})
             .then(function () { QG.toast('已开通'); self.load(); })

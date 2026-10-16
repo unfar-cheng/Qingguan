@@ -75,8 +75,8 @@ api/src/Auth.php       HMAC-SHA256 签名 token（HttpOnly cookie qg_token）、
 api/src/Tenant.php     每请求租户上下文 + 按库名缓存的 PDO 池
 api/src/Db.php         数据面薄封装，**写死走 Tenant::pdo()**
 api/src/ControlDb.php  控制面连接（跨租户对象）
-api/src/controllers/   9 个：Auth/Order/Plan/Org/Finance/System/Upload + Platform（平台登录与租户审核）/Tenant（注册/品牌公开接口 + Logo 上传）
-api/src/repos/         11 个：Order/Finance/User/Permission/Role/Company/Plan/Log/Dict/File/Config（+ProvisionRepo 开通播种）
+api/src/controllers/   10 个：Auth/Bill/Order/Plan/Org/Finance/System/Upload + Platform（平台登录与租户审核）/Tenant（注册/品牌公开接口 + Logo 上传）
+api/src/repos/         13 个：Order/Bill/Finance/User/Permission/Role/Company/Plan/Log/Dict/File/Config（+ProvisionRepo 开通播种）
 api/src/RateLimit.php  文件型滑动窗口限流（api/runtime/ratelimit/，fail-open）
 api/src/TenantProvisioner.php  幂等开通：按 tenant_id 执行 db/schema.sql 播种 + 建管理员（SQL 在 repos/ProvisionRepo）
 index.html             外壳：左侧菜单(来自 /api/menu) + 保活 iframe 多标签 + 版本水印 + 租户品牌（名称/Logo）

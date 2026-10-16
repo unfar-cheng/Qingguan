@@ -173,6 +173,9 @@ class PlatformController
             Response::fail('租户未开通，暂不能确认收款');
         }
         $ref = Req::str('ref');
+        if (mb_strlen($ref) > 100) {
+            Response::fail('支付参考号不能超过 100 字');
+        }
         $newExp = '';
         ControlDb::begin();
         try {
