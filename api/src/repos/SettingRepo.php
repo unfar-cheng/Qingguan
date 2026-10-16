@@ -27,6 +27,12 @@ class SettingRepo
         return $out;
     }
 
+    /** 清空设置（回落代码侧兜底）；返回受影响行数 */
+    public static function delete(string $key): int
+    {
+        return ControlDb::exec('DELETE FROM saas_setting WHERE setting_key = ?', [$key]);
+    }
+
     public static function put(string $key, string $value, int $platformUserId): void
     {
         ControlDb::exec(

@@ -313,20 +313,35 @@ class PlatformController
     public static function settingsPut(): void
     {
         $admin = Auth::requirePlatform();
-        $updated = [];
+        $body  = Req::all();
+        // 先全量校验再写入：多键白名单未来扩展时不会出现“前键已写、后键报错”的半更新
+        $plan = [];
         foreach (self::SETTING_KEYS as $key) {
+            if (!array_key_exists($key, $body)) { continue; }   // 未提交的键保持不动
             $v = Req::str($key);
-            if ($v === '') { continue; }
-            if (mb_strlen($v) > 2000) {
+            if ($v !== '' && mb_strlen($v) > 2000) {
                 Response::fail($key . ' 不能超过 2000 字');
+            }
+            $plan[$key] = $v;
+        }
+        if (!$plan) {
+            Response::fail('没有需要更新的设置项');
+        }
+        $updated = [];
+        $cleared = [];
+        foreach ($plan as $key => $v) {
+            if ($v === '') {                                     // 显式空串 = 清空，回落代码侧兜底
+                SettingRepo::delete($key);
+                $cleared[] = $key;
+                continue;
             }
             SettingRepo::put($key, $v, (int) $admin['id']);
             $updated[] = $key;
         }
-        if (!$updated) {
-            Response::fail('没有需要更新的设置项');
-        }
-        self::audit((int) $admin['id'], 'setting_update', null, '更新平台设置：' . implode(',', $updated));
+        $parts = [];
+        if ($updated) { $parts[] = '更新 ' . implode(',', $updated); }
+        if ($cleared) { $parts[] = '清空 ' . implode(',', $cleared); }
+        self::audit((int) $admin['id'], 'setting_update', null, '平台设置：' . implode('；', $parts));
         Response::ok(SettingRepo::all(self::SETTING_KEYS), '设置已保存');
     }
 
