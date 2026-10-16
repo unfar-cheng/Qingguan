@@ -32,8 +32,8 @@
 全部在 `/data/qingguan/app` 下执行：
 
 ```bash
-# 跑测试（68 个用例；HTTP 用例需要站点在跑，否则自动跳过）
-php83 tests/run.php                     # 期望 68 passed, 0 failed
+# 跑测试（69 个用例；HTTP 用例需要站点在跑，否则自动跳过）
+php83 tests/run.php                     # 期望 69 passed, 0 failed
 php83 tests/guard_no_raw_business_sql.php   # 期望 guard ok
 
 # 只跑部分 / 指向临时站点
@@ -159,7 +159,7 @@ mysql -u<user> -p <库名> -e "SET @tenant_id := <id>; SOURCE db/schema.sql;"
 - 零依赖自建断言器：`tests/lib.php` 提供 `t($name, $fn)`、`assert_true/assert_eq/assert_contains`；`tests/run.php` glob `tests/test_*.php` 后逐个跑，打印 `PASS/FAIL` 并在失败时退出非零。
 - **测试连的是 `api/config/config.php` 指向的真实开发库**（`bootstrap.php` 读 `App::config('db')` / `control_db`）——**没有独立测试库，也没有读 `.env`**。隔离靠使用高号段合成租户 id（9001/9002/9101…）并在用例结束时清理。因为直连真实库，别在测试里做破坏性操作。
 - HTTP 用例走 **`curl` 命令行**（`tests/http.php`，因为 breeder 上没装 `php-curl`），默认打 `QG_BASE` 或 `https://qingguan-dev.sflswall.com.cn`；站点不通会**自动跳过**（`qg_site_up()` 探测 `/api/auth/me`）。部分用例依赖已播种的 `demo / admin / admin123`。
-- 预期基线：`php83 tests/run.php` → `68 passed, 0 failed`；守卫 → `guard ok`。**这两个不绿不要提交。**
+- 预期基线：`php83 tests/run.php` → `69 passed, 0 failed`；守卫 → `guard ok`。**这两个不绿不要提交。**
 - 限流与测试的交互：`register` 5 次/小时/IP、`platform-login` 10 次/10 分钟、`tenant-login` 20 次/10 分钟（存 `api/runtime/ratelimit/`）。一次全量套件恰好用满部分桶——**`tests/bootstrap.php` 在套件启动时会自动清空该目录**，所以重复跑全绿；手工打接口验证时若撞 429，`rm -rf api/runtime/ratelimit/*` 即可。
 - **结构把闸**：`tests/test_schema_parity.php` 会把 `db/schema.sql` 里的 21 条 CREATE TABLE 落到当前库（`__parity__` 前缀临时表）再与真实表逐列逐键比对——**改了 `db/migration_*.sql` 的结构却忘了同步 `db/schema.sql` 的 DDL 段时它会红**。这是「每次表结构变更也要维护好 db/schema.sql」的强制手段。
 
