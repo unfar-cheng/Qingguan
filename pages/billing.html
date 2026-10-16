@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>账单中心</title>
+<link rel="icon" href="/favicon.ico">
+<link rel="stylesheet" href="/assets/vendor/element-plus.css">
+<link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+<div id="app" v-cloak>
+<div class="page" v-loading="loading">
+  <div class="page-head">
+    <h2 style="margin:0">账单中心</h2>
+    <div class="spacer"></div>
+    <el-button type="primary" @click="renewVisible = true">续费</el-button>
+  </div>
+  <div class="card">
+    <el-alert v-if="notice" :title="notice" type="info" :closable="false" style="margin-bottom:12px"></el-alert>
+    <el-table :data="rows">
+      <el-table-column prop="id" label="账单号" width="90"></el-table-column>
+      <el-table-column label="周期" width="90">
+        <template #default="s">{{ s.row.cycle === 'month' ? '月付' : '年付' }}</template>
+      </el-table-column>
+      <el-table-column label="金额" width="110">
+        <template #default="s">¥{{ s.row.amount }}</template>
+      </el-table-column>
+      <el-table-column label="状态" width="100">
+        <template #default="s">
+          <el-tag :type="{ unpaid: 'warning', paid: 'success', void: 'info' }[s.row.status] || 'info'">
+            {{ { unpaid: '待支付', paid: '已支付', void: '已作废' }[s.row.status] || s.row.status }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="created_at" label="生成时间" width="160"></el-table-column>
+      <el-table-column prop="paid_at" label="支付时间" width="160">
+        <template #default="s">{{ s.row.paid_at || '—' }}</template>
+      </el-table-column>
+      <el-table-column prop="remark" label="备注" min-width="140"></el-table-column>
+    </el-table>
+  </div>
+  <el-dialog v-model="renewVisible" title="续费" width="420px">
+    <el-form label-width="90px">
+      <el-form-item label="续费周期">
+        <el-radio-group v-model="renewCycle">
+          <el-radio-button value="year">年付</el-radio-button>
+          <el-radio-button value="month">月付</el-radio-button>
+        </el-radio-group>
+      </el-form-item>
+    </el-form>
+    <div style="color:#909399;font-size:12px;line-height:1.8">{{ notice }}</div>
+    <template #footer>
+      <el-button @click="renewVisible = false">取消</el-button>
+      <el-button type="primary" :loading="saving" @click="doRenew">生成账单</el-button>
+    </template>
+  </el-dialog>
+</div>
+</div>
+<script src="/assets/vendor/vue.global.prod.js"></script>
+<script src="/assets/vendor/element-plus.full.min.js"></script>
+<script src="/assets/vendor/icons.iife.min.js"></script>
+<script src="/assets/js/common.js"></script>
+<script>
+QG.mount(function () {
+  return {
+    data: function () {
+      return { rows: [], loading: false, saving: false, renewVisible: false, renewCycle: 'year', notice: '' };
+    },
+    created: function () {
+      var self = this;
+      QG.get('/auth/me').then(function (u) {
+        self.notice = (u && u.billing && u.billing.notice) || '请联系平台获取收款账户信息';
+      }).catch(function () {});
+      this.load();
+    },
+    methods: {
+      load: function () {
+        var self = this;
+        self.loading = true;
+        QG.get('/bills').then(function (d) { self.rows = d || []; })
+          .catch(function (e) { QG.err(e); })
+          .finally(function () { self.loading = false; });
+      },
+      doRenew: function () {
+        var self = this;
+        self.saving = true;
+        QG.post('/bills', { cycle: self.renewCycle })
+          .then(function () {
+            QG.toast('账单已生成，转账后请联系平台确认');
+            self.renewVisible = false;
+            self.load();
+          })
+          .catch(function (e) { QG.err(e); })
+          .finally(function () { self.saving = false; });
+      }
+    }
+  };
+});
+</script>
+</body>
+</html>

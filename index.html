@@ -48,6 +48,8 @@
 
     <!-- 右侧主区 -->
     <div class="main">
+      <el-alert v-if="billTip" :title="billTip" :type="billTipType" :closable="billTipClosable"
+        @close="billTipClosed = true" style="border-radius:0"></el-alert>
       <div class="topbar">
         <div class="hamb" @click="collapse = !collapse">
           <el-icon><component :is="collapse ? 'Expand' : 'Fold'"></component></el-icon>
@@ -126,6 +128,7 @@ QG.mount(function () {
         updateReady: null,      /* 检测到但还没刷新的新版号（用来避免重复提示） */
         updateInfo: null,       /* 新版号的完整信息（含构建时间），刷新后同步给水印用 */
         pwdVisible: false, saving: false,
+        billTipClosed: false,
         pwdForm: { old_password: '', new_password: '', confirm: '' },
         titleMap: {}
       };
@@ -135,6 +138,25 @@ QG.mount(function () {
         var t = this.tabs.filter(function (x) { return x.path === this.active; }.bind(this))[0];
         if (!t) return ['首页'];
         return t.group ? [t.group, t.title] : [t.title];
+      },
+      billTip: function () {
+        var b = this.user && this.user.billing;
+        if (!b || this.billTipClosed) { return ''; }
+        if (b.state === 'soon') { return '会员剩余 ' + b.days_left + ' 天，请及时续费（左侧「账单中心」可自助续费）'; }
+        if (b.state === 'grace') {
+          return b.trial
+            ? '试用期剩余 ' + b.days_left + ' 天，付款后服务期自审核日起算（左侧「账单中心」可自助续费）'
+            : '服务已到期，宽限剩余 ' + b.days_left + ' 天，请尽快续费';
+        }
+        return '';
+      },
+      billTipType: function () {
+        var b = this.user && this.user.billing;
+        return b && b.state === 'grace' ? 'error' : 'warning';
+      },
+      billTipClosable: function () {
+        var b = this.user && this.user.billing;
+        return !(b && b.state === 'grace');
       }
     },
     watch: {

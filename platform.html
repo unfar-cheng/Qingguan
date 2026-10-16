@@ -17,6 +17,7 @@
     <el-radio-group v-model="view" @change="onView">
       <el-radio-button value="tenants">租户审核</el-radio-button>
       <el-radio-button value="audits">审计日志</el-radio-button>
+      <el-radio-button value="bills">账单</el-radio-button>
     </el-radio-group>
     <el-radio-group v-if="view === 'tenants'" v-model="status" @change="function () { q.page = 1; load(); }">
       <el-radio-button value="pending">待审核</el-radio-button>
@@ -35,6 +36,9 @@
       <el-table-column prop="plan_name" label="套餐" width="140"></el-table-column>
       <el-table-column label="隔离档" width="150">
         <template #default="s">{{ s.row.mode === 'dedicated' ? ('独享 ' + (s.row.db_name || ('qingguan_t_' + s.row.code))) : '共享库' }}</template>
+      </el-table-column>
+      <el-table-column label="有效期" width="170">
+        <template #default="s">{{ expiryText(s.row) }}</template>
       </el-table-column>
       <el-table-column label="联系人" min-width="150">
         <template #default="s">{{ s.row.contact_name }} {{ s.row.contact_phone || s.row.contact_email }}</template>
@@ -59,7 +63,7 @@
       :total="total" :page-size="q.pageSize" :current-page="q.page"
       @current-change="function (p) { q.page = p; load(); }"></el-pagination>
   </div>
-  <div class="card" v-else v-loading="aLoading">
+  <div class="card" v-else-if="view === 'audits'" v-loading="aLoading">
     <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
       <el-select v-model="aAction" placeholder="全部动作" clearable style="width:150px"
         @change="function () { aq.page = 1; loadAudits(); }">
@@ -88,6 +92,54 @@
       :total="aTotal" :page-size="aq.pageSize" :current-page="aq.page"
       @current-change="function (p) { aq.page = p; loadAudits(); }"></el-pagination>
   </div>
+  <div class="card" v-else-if="view === 'bills'" v-loading="bLoading">
+    <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
+      <el-select v-model="bStatus" placeholder="全部状态" clearable style="width:140px"
+        @change="function () { bq.page = 1; loadBills(); }">
+        <el-option value="unpaid" label="待支付"></el-option>
+        <el-option value="paid" label="已支付"></el-option>
+        <el-option value="void" label="已作废"></el-option>
+      </el-select>
+      <el-input v-model="bTenant" placeholder="按租户代码过滤" clearable style="width:180px"
+        @keyup.enter="function () { bq.page = 1; loadBills(); }"
+        @clear="function () { bq.page = 1; loadBills(); }"></el-input>
+      <el-button type="primary" plain @click="function () { bq.page = 1; loadBills(); }">查询</el-button>
+    </div>
+    <el-table :data="bRows">
+      <el-table-column prop="id" label="账单号" width="90"></el-table-column>
+      <el-table-column label="租户" min-width="170">
+        <template #default="s">{{ s.row.tenant_code ? (s.row.tenant_code + ' · ' + s.row.tenant_name) : '—' }}</template>
+      </el-table-column>
+      <el-table-column label="周期" width="80">
+        <template #default="s">{{ s.row.cycle === 'month' ? '月付' : '年付' }}</template>
+      </el-table-column>
+      <el-table-column label="金额" width="100">
+        <template #default="s">¥{{ s.row.amount }}</template>
+      </el-table-column>
+      <el-table-column label="状态" width="90">
+        <template #default="s">
+          <el-tag :type="{ unpaid: 'warning', paid: 'success', void: 'info' }[s.row.status] || 'info'">
+            {{ { unpaid: '待支付', paid: '已支付', void: '已作废' }[s.row.status] || s.row.status }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="created_at" label="生成时间" width="160"></el-table-column>
+      <el-table-column prop="paid_at" label="支付时间" width="160">
+        <template #default="s">{{ s.row.paid_at || '—' }}</template>
+      </el-table-column>
+      <el-table-column label="操作" width="170" fixed="right">
+        <template #default="s">
+          <template v-if="s.row.status === 'unpaid'">
+            <el-button size="small" type="primary" @click="confirmBill(s.row)">确认收款</el-button>
+            <el-button size="small" type="danger" plain @click="voidBill(s.row)">作废</el-button>
+          </template>
+        </template>
+      </el-table-column>
+    </el-table>
+    <el-pagination style="margin-top:12px;justify-content:flex-end" layout="total, prev, pager, next"
+      :total="bTotal" :page-size="bq.pageSize" :current-page="bq.page"
+      @current-change="function (p) { bq.page = p; loadBills(); }"></el-pagination>
+  </div>
 </div>
 </div>
 <style>
@@ -106,6 +158,7 @@ QG.mount(function () {
         rows: [], total: 0, loading: false, status: 'pending', q: { page: 1, pageSize: 20 },
         view: 'tenants',
         aRows: [], aTotal: 0, aLoading: false, aAction: '', aTenant: '', aq: { page: 1, pageSize: 20 },
+        bRows: [], bTotal: 0, bLoading: false, bStatus: '', bTenant: '', bq: { page: 1, pageSize: 20 },
         auditActions: ['register', 'approve', 'reject', 'suspend', 'enable', 'login', 'provision_failed']
       };
     },
@@ -129,6 +182,7 @@ QG.mount(function () {
       },
       onView: function () {
         if (this.view === 'audits') { this.loadAudits(); }
+        if (this.view === 'bills') { this.loadBills(); }
       },
       loadAudits: function () {
         var self = this;
@@ -139,6 +193,42 @@ QG.mount(function () {
         }).then(function (d) { self.aRows = d.list || []; self.aTotal = d.total || 0; })
           .catch(function (e) { QG.err(e); })
           .finally(function () { self.aLoading = false; });
+      },
+      loadBills: function () {
+        var self = this;
+        self.bLoading = true;
+        QG.get('/platform/bills', {
+          status: self.bStatus, tenant: (self.bTenant || '').trim(),
+          page: self.bq.page, pageSize: self.bq.pageSize
+        }).then(function (d) { self.bRows = d.list || []; self.bTotal = d.total || 0; })
+          .catch(function (e) { QG.err(e); })
+          .finally(function () { self.bLoading = false; });
+      },
+      confirmBill: function (row) {
+        var self = this;
+        QG.confirm('确认已收到「' + row.tenant_code + '」' + (row.cycle === 'month' ? '月付' : '年付') + ' ¥' + row.amount + '？确认后服务期立即顺延。').then(function () {
+          QG.post('/platform/bills/' + row.id + '/confirm', {})
+            .then(function () { QG.toast('已确认收款'); self.loadBills(); })
+            .catch(function (e) { QG.err(e); });
+        }).catch(function () {});
+      },
+      voidBill: function (row) {
+        var self = this;
+        ElementPlus.ElMessageBox.prompt('请输入作废原因', '作废账单 #' + row.id, {
+          inputPattern: /\S+/, inputErrorMessage: '原因不能为空'
+        }).then(function (r) {
+          QG.post('/platform/bills/' + row.id + '/void', { reason: r.value })
+            .then(function () { QG.toast('已作废'); self.loadBills(); })
+            .catch(function (e) { QG.err(e); });
+        }).catch(function () {});
+      },
+      expiryText: function (row) {
+        if (!row.expires_at) { return '—'; }
+        var d = Math.ceil((new Date(row.expires_at).getTime() - Date.now()) / 86400000);
+        if (d > 30) { return row.expires_at.slice(0, 10); }
+        if (d > 0) { return row.expires_at.slice(0, 10) + '（剩 ' + d + ' 天）'; }
+        var g = d + 30;
+        return g > 0 ? row.expires_at.slice(0, 10) + '（宽限剩 ' + g + ' 天）' : row.expires_at.slice(0, 10) + '（已过期）';
       },
       auditText: function (a) {
         return { register: '注册申请', approve: '通过开通', reject: '驳回', suspend: '停用', enable: '启用', login: '平台登录', provision_failed: '开通失败' }[a] || a;
