@@ -1,6 +1,6 @@
 # P0-A 账单与有效期 实现计划
 
-> **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [ ]`）语法来跟踪进度。
+> **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [x]`）语法来跟踪进度。
 
 **目标：** 引入账单实体与服务期——注册选周期生成账单、审核通过即 30 天试用、线下付款平台确认后到期日生效/顺延、租户侧条幅+账单中心、超宽限登录拦截。
 
@@ -51,7 +51,7 @@
 
 **文件：** 创建 `api/src/Billing.php`、`tests/test_billing_calc.php`
 
-- [ ] **步骤 1.1：写失败的测试** —— 创建 `tests/test_billing_calc.php`（全文）：
+- [x] **步骤 1.1：写失败的测试** —— 创建 `tests/test_billing_calc.php`（全文）：
 
 ```php
 <?php
@@ -100,9 +100,9 @@ t('Billing::nextExpiry：三分支重算', function () {
 });
 ```
 
-- [ ] **步骤 1.2：运行验证失败** —— `php83 tests/run.php 2>&1 | tail -4`，预期新用例 FAIL（类不存在）。
+- [x] **步骤 1.2：运行验证失败** —— `php83 tests/run.php 2>&1 | tail -4`，预期新用例 FAIL（类不存在）。
 
-- [ ] **步骤 1.3：实现** —— 创建 `api/src/Billing.php`（全文）：
+- [x] **步骤 1.3：实现** —— 创建 `api/src/Billing.php`（全文）：
 
 ```php
 <?php
@@ -154,9 +154,9 @@ class Billing
 }
 ```
 
-- [ ] **步骤 1.4：运行验证通过** —— `php83 tests/run.php 2>&1 | tail -1`，预期 **72 passed, 0 failed**（69+3，run.php 按 t() 组计数）。
+- [x] **步骤 1.4：运行验证通过** —— `php83 tests/run.php 2>&1 | tail -1`，预期 **72 passed, 0 failed**（69+3，run.php 按 t() 组计数）。
 
-- [ ] **步骤 1.5：Commit**
+- [x] **步骤 1.5：Commit**
 
 ```bash
 git add api/src/Billing.php tests/test_billing_calc.php
@@ -169,7 +169,7 @@ git commit -m "feat: Billing 服务期状态机与到期日三分支重算（纯
 
 **文件：** 创建 `db/migration_20261016_control_billing.sql`；修改 `db/control/schema.sql:21-44`（saas_tenant 列）与其末尾（saas_bill DDL）
 
-- [ ] **步骤 2.1：写迁移** —— 创建 `db/migration_20261016_control_billing.sql`（全文；**在控制面库执行**）：
+- [x] **步骤 2.1：写迁移** —— 创建 `db/migration_20261016_control_billing.sql`（全文；**在控制面库执行**）：
 
 ```sql
 -- 控制面：账单与有效期（幂等；MySQL 8.0 与 MariaDB 10.5 通用；执行库 = qingguan_control[_dev]）
@@ -203,7 +203,7 @@ SET @s := (SELECT IF(
 PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
 ```
 
-- [ ] **步骤 2.2：dev 控制面执行 + 幂等复跑**
+- [x] **步骤 2.2：dev 控制面执行 + 幂等复跑**
 
 ```bash
 sudo -n mysql qingguan_control_dev < db/migration_20261016_control_billing.sql && sudo -n mysql qingguan_control_dev < db/migration_20261016_control_billing.sql && echo IDEMPOTENT_OK
@@ -212,7 +212,7 @@ sudo -n mysql -e "SHOW COLUMNS FROM qingguan_control_dev.saas_tenant LIKE 'expir
 
 预期：两次执行都成功；三处结构就位。
 
-- [ ] **步骤 2.3：同步 `db/control/schema.sql`** —— `saas_tenant` DDL 的 `reject_reason` 行后加：
+- [x] **步骤 2.3：同步 `db/control/schema.sql`** —— `saas_tenant` DDL 的 `reject_reason` 行后加：
 
 ```sql
   `bill_cycle`          ENUM('month','year') NOT NULL DEFAULT 'year' COMMENT '注册申请的付费周期意愿',
@@ -240,7 +240,7 @@ CREATE TABLE IF NOT EXISTS `saas_bill` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='账单';
 ```
 
-- [ ] **步骤 2.4：Commit**
+- [x] **步骤 2.4：Commit**
 
 ```bash
 git add db/migration_20261016_control_billing.sql db/control/schema.sql
@@ -253,7 +253,7 @@ git commit -m "feat: 控制面迁移——saas_tenant 有效期列 + saas_bill �
 
 **文件：** 创建 `db/migration_20261016_menu_billing.sql`；修改 `db/schema.sql:462-473`（顶级菜单种子 UNION 列表）
 
-- [ ] **步骤 3.1：写迁移** —— 创建 `db/migration_20261016_menu_billing.sql`（全文；**在每个数据面库执行**：共享库手工跑；未来专用库经 `scripts/migrate_dedicated.php`）：
+- [x] **步骤 3.1：写迁移** —— 创建 `db/migration_20261016_menu_billing.sql`（全文；**在每个数据面库执行**：共享库手工跑；未来专用库经 `scripts/migrate_dedicated.php`）：
 
 ```sql
 -- 数据面：对库内全部已开通租户补插「账单中心」一级菜单（幂等；uk_tenant_code 去重；
@@ -265,7 +265,7 @@ SELECT DISTINCT p.tenant_id, 0, '账单中心', 'billing', 1, '/pages/billing.ht
  WHERE x.id IS NULL;
 ```
 
-- [ ] **步骤 3.2：dev 共享库执行 + 幂等复跑**
+- [x] **步骤 3.2：dev 共享库执行 + 幂等复跑**
 
 ```bash
 sudo -n mysql qingguan_dev < db/migration_20261016_menu_billing.sql && sudo -n mysql qingguan_dev < db/migration_20261016_menu_billing.sql && echo IDEMPOTENT_OK
@@ -274,7 +274,7 @@ sudo -n mysql -e "SELECT tenant_id, id, name, sort FROM qingguan_dev.sys_permiss
 
 预期：租户 1（demo）一行；二次执行 0 行新增。
 
-- [ ] **步骤 3.3：同步 `db/schema.sql`** —— 顶级菜单 UNION 列表（462-473 行）在「系统设置」行后加：
+- [x] **步骤 3.3：同步 `db/schema.sql`** —— 顶级菜单 UNION 列表（462-473 行）在「系统设置」行后加：
 
 ```sql
     UNION ALL SELECT '账单中心',   'billing',           '/pages/billing.html',      'Wallet',           2
@@ -282,7 +282,7 @@ sudo -n mysql -e "SELECT tenant_id, id, name, sort FROM qingguan_dev.sys_permiss
 
 注意该文件铁律：语句字符串值内不得含 ASCII 分号、行尾注释必须 `-- ` 带空格（ProvisionRepo::splitStatements 约定）。
 
-- [ ] **步骤 3.4：Commit**
+- [x] **步骤 3.4：Commit**
 
 ```bash
 git add db/migration_20261016_menu_billing.sql db/schema.sql
@@ -295,7 +295,7 @@ git commit -m "feat: 账单中心菜单——存量租户幂等补插迁移 + sc
 
 **文件：** 修改 `api/src/controllers/TenantController.php:96-125`、`register.html:39-48/74/105-112`、`api/src/controllers/PlatformController.php:111-136`（reject）
 
-- [ ] **步骤 4.1：TenantController::register** —— try 块前加校验（在 `$password` 校验之后）：
+- [x] **步骤 4.1：TenantController::register** —— try 块前加校验（在 `$password` 校验之后）：
 
 ```php
         $cycle = Req::str('bill_cycle');
@@ -321,7 +321,7 @@ git commit -m "feat: 账单中心菜单——存量租户幂等补插迁移 + sc
         ]);
 ```
 
-- [ ] **步骤 4.2：register.html** —— 套餐 `</el-form-item>`（48 行）后加：
+- [x] **步骤 4.2：register.html** —— 套餐 `</el-form-item>`（48 行）后加：
 
 ```html
           <el-form-item label="付费周期" required>
@@ -335,7 +335,7 @@ git commit -m "feat: 账单中心菜单——存量租户幂等补插迁移 + sc
 
 `form` 对象（74 行）加 `'bill_cycle': 'year'`；`submit` 校验（112 行 `if (!f.plan_id)` 旁）加 `if (!f.bill_cycle) { return QG.warn('请选择付费周期'); }`。
 
-- [ ] **步骤 4.3：驳回自动作废** —— `PlatformController::reject` 的状态守卫成功分支（`$n !== 0` 后、`self::audit` 前）加：
+- [x] **步骤 4.3：驳回自动作废** —— `PlatformController::reject` 的状态守卫成功分支（`$n !== 0` 后、`self::audit` 前）加：
 
 ```php
         ControlDb::exec(
@@ -344,7 +344,7 @@ git commit -m "feat: 账单中心菜单——存量租户幂等补插迁移 + sc
         );
 ```
 
-- [ ] **步骤 4.4：验证 + Commit**
+- [x] **步骤 4.4：验证 + Commit**
 
 ```bash
 php83 tests/run.php 2>&1 | tail -1        # 预期 72 passed（注册既有用例不传 cycle 会红——见步骤 4.5）
@@ -372,7 +372,7 @@ git commit -m "feat: 注册选付费周期并生成第一张账单，驳回自�
 
 **文件：** 修改 `api/src/TenantProvisioner.php`（两条守卫 UPDATE）、`api/src/controllers/AuthController.php:26-56/76-81`、`api/src/Auth.php:104-123`
 
-- [ ] **步骤 5.1：开通即试用开始** —— `TenantProvisioner::provision` 两条 UPDATE（shared 与 dedicated 分支）各加一列：
+- [x] **步骤 5.1：开通即试用开始** —— `TenantProvisioner::provision` 两条 UPDATE（shared 与 dedicated 分支）各加一列：
 
 ```php
                 "UPDATE saas_tenant SET status = 'active', expires_at = NOW(), reviewed_at = NOW(), reviewed_by = ?, admin_password_hash = '', reject_reason = '' WHERE id = ? AND status = 'pending'",
@@ -380,7 +380,7 @@ git commit -m "feat: 注册选付费周期并生成第一张账单，驳回自�
 
 dedicated 分支同款（保留其 `db_name = ?` 列）。
 
-- [ ] **步骤 5.2：登录拦截** —— `AuthController::login` 的 rejected 分支之后、`!== 'active'` 分支之前加：
+- [x] **步骤 5.2：登录拦截** —— `AuthController::login` 的 rejected 分支之后、`!== 'active'` 分支之前加：
 
 ```php
         if ($t['expires_at'] !== null
@@ -389,7 +389,7 @@ dedicated 分支同款（保留其 `db_name = ?` 列）。
         }
 ```
 
-- [ ] **步骤 5.3：会话失效 + 带出 expires_at** —— `Auth::user()` 租户分支（`status !== 'active'` 判断之后）加：
+- [x] **步骤 5.3：会话失效 + 带出 expires_at** —— `Auth::user()` 租户分支（`status !== 'active'` 判断之后）加：
 
 ```php
         if ($t['expires_at'] !== null
@@ -405,7 +405,7 @@ dedicated 分支同款（保留其 `db_name = ?` 列）。
         $u['expires_at'] = $t['expires_at'];
 ```
 
-- [ ] **步骤 5.4：/auth/me 加 billing 字段** —— `AuthController::me` 改为：
+- [x] **步骤 5.4：/auth/me 加 billing 字段** —— `AuthController::me` 改为：
 
 ```php
     public static function me(): void
@@ -424,7 +424,7 @@ dedicated 分支同款（保留其 `db_name = ?` 列）。
     }
 ```
 
-- [ ] **步骤 5.5：验证 + Commit**
+- [x] **步骤 5.5：验证 + Commit**
 
 ```bash
 php83 tests/run.php 2>&1 | tail -1 && php83 tests/guard_no_raw_business_sql.php | tail -1   # 72 passed + guard ok
@@ -438,7 +438,7 @@ git commit -m "feat: 审核通过即试用开始，超宽限登录/会话拦截�
 
 **文件：** 修改 `api/src/ControlDb.php`、`api/config/config.sample.php`；创建 `api/src/repos/BillRepo.php`、`api/src/controllers/BillController.php`；修改 `api/index.php:60` 附近
 
-- [ ] **步骤 6.1：ControlDb 补事务** —— 类尾加（镜像 `Db.php` 对 Tenant::pdo 的写法）：
+- [x] **步骤 6.1：ControlDb 补事务** —— 类尾加（镜像 `Db.php` 对 Tenant::pdo 的写法）：
 
 ```php
     public static function begin(): void
@@ -457,7 +457,7 @@ git commit -m "feat: 审核通过即试用开始，超宽限登录/会话拦截�
     }
 ```
 
-- [ ] **步骤 6.2：BillRepo** —— 创建 `api/src/repos/BillRepo.php`（全文）：
+- [x] **步骤 6.2：BillRepo** —— 创建 `api/src/repos/BillRepo.php`（全文）：
 
 ```php
 <?php
@@ -498,7 +498,7 @@ class BillRepo
 }
 ```
 
-- [ ] **步骤 6.3：BillController** —— 创建 `api/src/controllers/BillController.php`（全文）：
+- [x] **步骤 6.3：BillController** —— 创建 `api/src/controllers/BillController.php`（全文）：
 
 ```php
 <?php
@@ -553,13 +553,13 @@ class BillController
 }
 ```
 
-- [ ] **步骤 6.4：路由注册** —— `api/index.php` 在 `\QG\controllers\TenantController::routes($router);`（60 行）之后加：
+- [x] **步骤 6.4：路由注册** —— `api/index.php` 在 `\QG\controllers\TenantController::routes($router);`（60 行）之后加：
 
 ```php
 \QG\controllers\BillController::routes($router);
 ```
 
-- [ ] **步骤 6.5：config 样例** —— `api/config/config.sample.php` 的 `app` 段加（`page_size` 前）：
+- [x] **步骤 6.5：config 样例** —— `api/config/config.sample.php` 的 `app` 段加（`page_size` 前）：
 
 ```php
         'billing_notice' => '对公账户：户名/账号/开户行（部署时填写）· 汇款请备注租户代码',
@@ -567,7 +567,7 @@ class BillController
 
 dev 与 breeder 的真实 `config.php` 用程序化插入补同一键（先 `cp api/config/config.php /tmp/config.php.pre_billing.bak`，再 `php83 -r` 读改写，**不回显任何值**；dev 的收款信息可先填占位文案，由用户后续替换）。
 
-- [ ] **步骤 6.6：验证 + Commit**
+- [x] **步骤 6.6：验证 + Commit**
 
 ```bash
 php83 tests/run.php 2>&1 | tail -1 && php83 tests/guard_no_raw_business_sql.php | tail -1   # 72 passed + guard ok
@@ -581,7 +581,7 @@ git commit -m "feat: 租户账单接口（/api/bills 查看+自助续费）与 C
 
 **文件：** 修改 `api/src/controllers/PlatformController.php`（routes/tenants/reject 附近新增三个方法）
 
-- [ ] **步骤 7.1：路由** —— `$r->get('/platform/audits', ...)` 后加：
+- [x] **步骤 7.1：路由** —— `$r->get('/platform/audits', ...)` 后加：
 
 ```php
         $r->get('/platform/bills', [self::class, 'bills']);
@@ -591,7 +591,7 @@ git commit -m "feat: 租户账单接口（/api/bills 查看+自助续费）与 C
 
 文件头 `use` 加 `QG\Billing;` 与 `QG\repos\BillRepo;`。
 
-- [ ] **步骤 7.2：三个方法** —— `audits()` 后加：
+- [x] **步骤 7.2：三个方法** —— `audits()` 后加：
 
 ```php
     /** 全局账单列表：可按状态与租户代码筛选；未知租户代码恒空集（与 audits 同语义）。 */
@@ -682,9 +682,9 @@ git commit -m "feat: 租户账单接口（/api/bills 查看+自助续费）与 C
     }
 ```
 
-- [ ] **步骤 7.3：tenants 列表带出有效期** —— `tenants()` SELECT 的 `t.db_name,` 后加 `t.expires_at,`。
+- [x] **步骤 7.3：tenants 列表带出有效期** —— `tenants()` SELECT 的 `t.db_name,` 后加 `t.expires_at,`。
 
-- [ ] **步骤 7.4：验证 + Commit**
+- [x] **步骤 7.4：验证 + Commit**
 
 ```bash
 php83 tests/run.php 2>&1 | tail -1 && php83 tests/guard_no_raw_business_sql.php | tail -1   # 72 passed + guard ok
@@ -698,7 +698,7 @@ git commit -m "feat: 平台账单接口（列表/确认收款/作废）与租户
 
 **文件：** 创建 `pages/billing.html`；修改 `platform.html`、`index.html:50-51/118-131/161-171`
 
-- [ ] **步骤 8.1：pages/billing.html** —— 创建（全文；照 pages 现有页的 4-script 顺序 + QG.mount 模式）：
+- [x] **步骤 8.1：pages/billing.html** —— 创建（全文；照 pages 现有页的 4-script 顺序 + QG.mount 模式）：
 
 ```html
 <!DOCTYPE html>
@@ -807,7 +807,7 @@ QG.mount(function () {
 
 注意：`window.billingNotice` 由「任务 8.3 的注入」提供——**本页不新增后端配置接口**，notice 文案在 `index.html` 外壳与账单页共享同一来源。为避免额外接口，账单页直接用兜底文案即可（`window.billingNotice` 未定义时走「请联系平台获取收款账户信息」）；部署者可在 `config.php` 的 `billing_notice` 里写全账户信息并同步到 `index.html` 的条幅 tooltip。若评审认为必须动态下发，改为 `GET /auth/me` 的 `billing.notice`（后端读 `App::config('app')['billing_notice']`）——**采用后者**：`me()` 的 billing 数组再加 `'notice' => (string) App::config('app')['billing_notice']`（任务 5.4 的代码已定型，在本任务补这一行），本页与条幅都从 `me()` 取，删除 `window.billingNotice` 兜底逻辑。
 
-- [ ] **步骤 8.2：platform.html 账单视图** —— 三处：
+- [x] **步骤 8.2：platform.html 账单视图** —— 三处：
   ① 视图切换组加 `<el-radio-button value="bills">账单</el-radio-button>`（放「审计日志」后）；
   ② 现「审计日志」卡片 `v-else` 改 `v-else-if="view === 'audits'"`，其后新增账单卡片：
 
@@ -915,7 +915,7 @@ methods 加：
       },
 ```
 
-- [ ] **步骤 8.3：index.html 条幅** —— `.main` 的 `<div class="topbar">`（51 行）前插入：
+- [x] **步骤 8.3：index.html 条幅** —— `.main` 的 `<div class="topbar">`（51 行）前插入：
 
 ```html
       <el-alert v-if="billTip" :title="billTip" :type="billTipType" :closable="billTipClosable"
@@ -948,7 +948,7 @@ data（128 行 `pwdVisible` 旁）加 `billTipClosed: false,`；computed（`crum
 
 （`index.html` 不再需要 `window.billingNotice`——条幅文案不含账户信息，账户信息在账单中心页从 `/auth/me` 的 `billing.notice` 取。）
 
-- [ ] **步骤 8.4：验证 + Commit**
+- [x] **步骤 8.4：验证 + Commit**
 
 ```bash
 python3 - <<'EOF'
@@ -971,7 +971,7 @@ git commit -m "feat: 租户账单中心页、平台账单视图与外壳服务�
 
 **文件：** 创建 `tests/test_billing_http.php`；修改 `AGENTS.md`、`version.json`
 
-- [ ] **步骤 9.1：HTTP 全链路用例** —— 创建 `tests/test_billing_http.php`（骨架照 `tests/test_platform_api.php` 的 platform_jar/qg_post_json 惯例；合成租户 id 910xxx 段，finally 清理 `saas_bill`+`saas_tenant`+审计+数据面种子）：
+- [x] **步骤 9.1：HTTP 全链路用例** —— 创建 `tests/test_billing_http.php`（骨架照 `tests/test_platform_api.php` 的 platform_jar/qg_post_json 惯例；合成租户 id 910xxx 段，finally 清理 `saas_bill`+`saas_tenant`+审计+数据面种子）：
 
 ```php
 <?php
@@ -998,9 +998,9 @@ function ControlDbDelTenant(int $tid): void {
 4. `t('账单：过期租户登录被拦截')` —— SQL 造 active 租户 expires_at = now-31 天 + 管理员（数据面播种或复用）→ POST /api/auth/login → 断言「服务已到期」；/api/auth/me（若已有会话 cookie 场景）→ 401 语义由单测/集成保证，此处至少断言登录拦截。
 5. `t('账单：租户 token 只能读本租户账单')` —— 两个 active 租户各带 unpaid 账单 → A 的管理员 GET /api/bills → 断言只见 A 的账单号。
 
-- [ ] **步骤 9.2：全量回归 + 计数更新** —— `php83 tests/run.php 2>&1 | tail -1`（记录最终数字，预期 72+N）；`AGENTS.md` 三处基线计数（35/36/162 行的 69 → 实际值）。
+- [x] **步骤 9.2：全量回归 + 计数更新** —— `php83 tests/run.php 2>&1 | tail -1`（记录最终数字，预期 72+N）；`AGENTS.md` 三处基线计数（35/36/162 行的 69 → 实际值）。
 
-- [ ] **步骤 9.3：手工验收（dev，浏览器 + curl 混合，记录结论到本计划末尾）**
+- [x] **步骤 9.3：手工验收（dev，浏览器 + curl 混合，记录结论到本计划末尾）**
 
 1. 注册新租户（选月付）→ 平台列表看到 `bill_cycle`；控制面 `saas_bill` 有 unpaid 注册账单、amount=套餐月价；
 2. 平台通过 → 租户登录 → 外壳顶部红条幅「试用期剩余 30 天…」→ 账单中心可见账单 + 汇款说明；
@@ -1009,7 +1009,7 @@ function ControlDbDelTenant(int $tid): void {
 5. SQL 改到 31 天前 → 重新登录被拦「服务已到期」→ 平台确认一张年付账单 → 能登录、到期日 = 付款日 + 1 年；
 6. 清理全部合成数据。
 
-- [ ] **步骤 9.4：version bump + AGENTS.md 口径**
+- [x] **步骤 9.4：version bump + AGENTS.md 口径**
 
 ```bash
 git add tests/test_billing_http.php AGENTS.md && git commit -m "test: 账单全链路 HTTP 用例 + AGENTS.md 基线计数"
@@ -1025,7 +1025,7 @@ git add version.json && git commit -m "chore: version bump（$BUILD）"
 
 AGENTS.md 口径更新点：§6 数据库节补「账单与服务期」段（saas_bill 状态机、三分支重算引用规格、demo 租户 NULL 语义）；§9 已知坑补一条「`saas_bill` 确认收款必须走 PlatformController::confirmBill 的事务路径，手工改库会造成账单与到期日不一致」。
 
-- [ ] **步骤 9.5：发布 breeder（发布顺序：控制面迁移 → 菜单迁移 → 代码 → 配置 → 验证）**
+- [x] **步骤 9.5：发布 breeder（发布顺序：控制面迁移 → 菜单迁移 → 代码 → 配置 → 验证）**
 
 ```bash
 # 1) 备份
@@ -1038,7 +1038,7 @@ ssh breeder.sflswall.com.cn 'sudo mysql -u root qingguan_control < /tmp/migratio
 # 5) 验证：version.json 新 build；未登录 /api/bills → 401；平台登录后 /api/platform/bills → code 0
 ```
 
-- [ ] **步骤 9.6：合并 main** —— `git checkout main && git merge --ff-only feat/billing-expiry && git push origin main`（分支保留不删）。
+- [x] **步骤 9.6：合并 main** —— `git checkout main && git merge --ff-only feat/billing-expiry && git push origin main`（分支保留不删）。
 
 ---
 
@@ -1052,3 +1052,18 @@ ssh breeder.sflswall.com.cn 'sudo mysql -u root qingguan_control < /tmp/migratio
 ## 执行记录
 
 （执行时逐任务追加：日期 + commit + 结果/问题）
+
+### 执行记录（2026-10-16，子代理驱动 + 双重审查；控制者：协调/审查/发布）
+
+- 任务 1 `88f8750`+`44ae244`：Billing 纯函数。计划内嵌测试日期有误（T0 相对宽限的分支标错），实现者按协议 BLOCKED 上报，控制者裁决改测试侧并同步计划文档；质量审查揪出真实时钟定时炸弹，改显式 T0。72 passed。
+- 任务 2 `72b61e2`+`b18ad4c`+`365c560`+`d6e0862`：控制面迁移。审查者在「已存在」与「全新旧结构」两路径实测幂等；补 schema.sql saas_bill 显式 COLLATE 与迁移 SET NAMES 护栏。
+- 任务 3 `1c8ee11`：菜单迁移+种子。dev 实况已出现真实租户（express 共享、woniu 专用档已开通），实现者按计划原文对专用库执行 `migrate_dedicated.php` 扇出（三库各 1 行 billing）——该脚本首次真实服役。
+- 任务 4 `16c6c33`：注册链路。month 路径审查者独立端到端（注册→账单 600.00→驳回→void）。
+- 任务 5 `ec6ea2d`+`6de360e`+`ef89bdc`：审核联动/拦截/me。审查者补测两条拦截路径（伪造过期租户：登录拦、签名会话 401、宽限 trial=true）；收敛 `Billing::isExpired` 并补时钟透传。
+- 任务 6 `4419491`+`0b034b2`：ControlDb 事务 + BillRepo + /api/bills。子代理因平台 429 中断但已完成提交，控制者核验后进审查；审查者 HTTP 实测续费生成 600.00 账单并清理。
+- 任务 7 `e3bd634`：平台账单接口。审查者三分支各真实 confirm 实测（含**真实行锁迫使第二写超时→回滚干净**的原子性实验）+ 失败分支 + 筛选矩阵。
+- 任务 8 `55e7cae`+`4417fa4`+`c7944ca`：前端三件 + me() notice。审查发现 breeder config 漏键会致 /auth/me 500 → 补 `?? ''` 兜底；expiryText 兼容 Safari 日期解析。
+- 任务 9a `72dd830`+`ca242a3`：HTTP 五组用例（CLI UTC 时区坑已修）、AGENTS.md 口径（含 §9.7 专用库现状）、version bump。**78 passed, 0 failed** + guard ok。
+- 最终审查 `7c99244`：条件①（生产专用库菜单扇出）并入发布步骤；条件②（approve 弹窗试用期文案）+审计视图适配/有效期状态色/ref 长度校验/AGENTS 计数全部落实。
+- 任务 9b（发布，控制者手工）：合并 main（134634e→7c99244 fast-forward，78 passed 复跑）；生产备份 pre-billing-20261016.sql；控制面迁移×2 幂等；共享库菜单迁移×2（demo+cloudsway 各得 billing 行）；config.php 补 billing_notice（程序化，先于代码生效）；rsync+reload；专用库扇出 dry-run（生产无已开通专用库，pengcheng 待审，无事可做）；验证：version.json=72dd83074a、/api/bills 401、billing.html 200、平台 /api/platform/bills code 0。
+- 遗留（记录性）：手工验收中「浏览器条幅视觉」需人工过目；confirmBill 用 PHP time() 与 SQL NOW() 双时钟（同机部署无漂移，规格已知）；审计 detail 注册账单为 JSON 直显。
