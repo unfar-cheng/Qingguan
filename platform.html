@@ -99,7 +99,7 @@
     <div style="margin-bottom:12px">
       <div style="margin-bottom:6px;color:#909399">收款信息（租户「账单中心」展示，保存后即时生效；留空保存表示清空该项，租户端回落到系统默认提示）</div>
       <el-input type="textarea" v-model="noticeDraft" :rows="3" placeholder="对公账户、开户行、账号、汇款备注要求"></el-input>
-      <el-button size="small" type="primary" style="margin-top:6px" :loading="noticeSaving" @click="saveNotice">保存收款信息</el-button>
+      <el-button size="small" type="primary" style="margin-top:6px" :loading="noticeSaving" :disabled="!noticeLoaded" @click="saveNotice">保存收款信息</el-button>
     </div>
     <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
       <el-select v-model="bStatus" placeholder="全部状态" clearable style="width:140px"
@@ -154,7 +154,12 @@
     </div>
     <el-table :data="accRows">
       <el-table-column prop="id" label="ID" width="70"></el-table-column>
-      <el-table-column prop="username" label="账号" width="130"></el-table-column>
+      <el-table-column prop="username" label="账号" width="180">
+        <template #default="s">
+          {{ s.row.username }}
+          <el-tag v-if="s.row.id === meId" size="small" type="warning" style="margin-left:6px">当前账号</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column prop="real_name" label="姓名" width="120"></el-table-column>
       <el-table-column prop="email" label="邮箱" min-width="160"></el-table-column>
       <el-table-column label="状态" width="90">
@@ -169,7 +174,7 @@
       <el-table-column label="操作" width="230" fixed="right">
         <template #default="s">
           <template v-if="s.row.status === 1">
-            <el-button size="small" type="warning" plain @click="accountDisable(s.row)">停用</el-button>
+            <el-button v-if="s.row.id !== meId" size="small" type="warning" plain @click="accountDisable(s.row)">停用</el-button>
           </template>
           <template v-else>
             <el-button size="small" type="success" plain @click="accountEnable(s.row)">启用</el-button>
@@ -198,6 +203,7 @@
       <el-form-item label="确认新密码"><el-input v-model="pwdForm.confirm" type="password" show-password></el-input></el-form-item>
     </el-form>
     <template #footer>
+      <el-button v-if="pwdForce" @click="forceLogout">退出登录</el-button>
       <el-button v-if="!pwdForce" @click="pwdVisible = false">取消</el-button>
       <el-button type="primary" :loading="saving" @click="savePwd">确定</el-button>
     </template>
@@ -206,8 +212,35 @@
 </div>
 <style>
   .el-table .audit-fail-row td.el-table__cell { background: #fef0f0; }
+  .qg-copy-btn { padding: 5px 12px; border: 1px solid #409eff; background: #ecf5ff; color: #409eff;
+    border-radius: 4px; cursor: pointer; font-size: 13px; }
+  .qg-copy-btn:hover { background: #409eff; color: #fff; }
 </style>
 <script>window.QG_LOGIN_URL = '/admin-login.html';</script>
+<script>
+/* 一次性临时密码的复制按钮（HTML 字符串插入 MessageBox，故用全局函数 + 内联 onclick） */
+function qgCopyTemp() {
+  var el = document.getElementById('qg-temp-pwd');
+  var t = el ? (el.textContent || '') : '';
+  if (!t) { ElementPlus.ElMessage.warning('没有可复制的内容'); return; }
+  var done = function () { ElementPlus.ElMessage.success('已复制，请通过线下渠道告知客户'); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(t).then(done).catch(function () { qgCopyTempFallback(t, done); });
+  } else {
+    qgCopyTempFallback(t, done);
+  }
+}
+function qgCopyTempFallback(t, done) {
+  var ta = document.createElement('textarea');
+  ta.value = t;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); done(); } catch (e) { ElementPlus.ElMessage.warning('复制失败，请手动抄写'); }
+  document.body.removeChild(ta);
+}
+</script>
 <script src="/assets/vendor/vue.global.prod.js"></script>
 <script src="/assets/vendor/element-plus.full.min.js"></script>
 <script src="/assets/vendor/icons.iife.min.js"></script>
@@ -223,7 +256,8 @@ QG.mount(function () {
         bRows: [], bTotal: 0, bLoading: false, bStatus: '', bTenant: '', bq: { page: 1, pageSize: 20 },
         accRows: [], accLoading: false, accVisible: false, accSaving: false,
         accForm: { username: '', real_name: '', email: '' },
-        noticeDraft: '', noticeSaving: false,
+        meId: 0,
+        noticeDraft: '', noticeSaving: false, noticeLoaded: false,
         pwdVisible: false, pwdForce: false, saving: false,
         pwdForm: { old_password: '', new_password: '', confirm: '' },
         auditActions: ['register', 'approve', 'reject', 'suspend', 'enable', 'login', 'bill_paid', 'bill_void', 'provision_failed']
@@ -234,6 +268,7 @@ QG.mount(function () {
       /* 先探明会话：单 cookie 双 scope，租户令牌调平台接口一律 403（两边令牌互不通用），
          与其每个操作都弹错，不如直接送去平台登录页。未登录的 401 由 common.js 自动跳 admin-login。 */
       QG.get('/platform/me').then(function (u) {
+        self.meId = (u && u.id) || 0;
         if (u && u.must_change_password) {
           self.pwdForce = true;
           self.pwdForm = { old_password: '', new_password: '', confirm: '' };
@@ -279,11 +314,15 @@ QG.mount(function () {
       /* 收款信息：提交空串 = 清空该项，租户端回落到系统默认提示（后端 SettingRepo::delete 语义） */
       loadNotice: function () {
         var self = this;
-        QG.get('/platform/settings').then(function (d) { self.noticeDraft = (d && d.billing_notice) || ''; })
-          .catch(function () {});
+        self.noticeLoaded = false;
+        QG.get('/platform/settings').then(function (d) {
+          self.noticeDraft = (d && d.billing_notice) || '';
+          self.noticeLoaded = true;
+        }).catch(function (e) { QG.err(e); });
       },
       saveNotice: function () {
         var self = this;
+        if (!self.noticeLoaded) { return QG.warn('收款信息尚未加载成功，请刷新后重试'); }
         var v = (self.noticeDraft || '').trim();
         self.noticeSaving = true;
         QG.put('/platform/settings', { billing_notice: v })
@@ -336,16 +375,22 @@ QG.mount(function () {
         var self = this;
         QG.confirm('将为「' + row.username + '」生成新的临时密码，旧密码立即失效，其首登须修改。继续？').then(function () {
           QG.post('/platform/accounts/' + row.id + '/reset-password', {})
-            .then(function (d) { self.showTempPassword(d.temp_password, row.username); })
+            .then(function (d) { self.showTempPassword(d.temp_password, row.username); self.loadAccounts(); })
             .catch(function (e) { QG.err(e); });
         }).catch(function () {});
       },
       showTempPassword: function (temp, username) {
         ElementPlus.ElMessageBox.alert(
-          '<div style="font-size:20px;font-family:monospace;letter-spacing:2px;text-align:center">' + temp + '</div>'
-          + '<div style="color:#909399;font-size:12px;text-align:center">仅此一次展示，请复制后通过线下渠道告知「' + username + '」</div>',
+          '<div id="qg-temp-pwd" style="font-size:20px;font-family:monospace;letter-spacing:2px;text-align:center">' + temp + '</div>'
+          + '<div style="color:#909399;font-size:12px;text-align:center">仅此一次展示，请复制后通过线下渠道告知「' + username + '」</div>'
+          + '<div style="text-align:center;margin-top:10px"><button type="button" class="qg-copy-btn" onclick="qgCopyTemp()">复制临时密码</button></div>',
           '临时密码',
           { dangerouslyUseHTMLString: true, confirmButtonText: '我已线下交付' });
+      },
+      /* 强改态的逃生口：拿不到正确原密码时至少能退出登录（服务端标记仍在，下次登录照旧强改） */
+      forceLogout: function () {
+        QG.post('/platform/logout').then(function () { location.href = '/admin-login.html'; })
+          .catch(function () { location.href = '/admin-login.html'; });
       },
       loadAudits: function () {
         var self = this;

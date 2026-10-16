@@ -105,6 +105,7 @@
       <el-form-item label="确认新密码"><el-input v-model="pwdForm.confirm" type="password" show-password></el-input></el-form-item>
     </el-form>
     <template #footer>
+      <el-button v-if="pwdForce" @click="forceLogout">退出登录</el-button>
       <el-button v-if="!pwdForce" @click="pwdVisible = false">取消</el-button>
       <el-button type="primary" :loading="saving" @click="savePwd">确定</el-button>
     </template>
@@ -376,6 +377,11 @@ QG.mount(function () {
           .then(function () { QG.toast('密码已修改，请重新登录'); setTimeout(function () { location.href = '/login.html'; }, 800); })
           .catch(function (e) { QG.err(e); })
           .finally(function () { self.saving = false; });
+      },
+      /* 强改态的逃生口：拿不到正确原密码时至少能退出登录（服务端标记仍在，下次登录照旧强改） */
+      forceLogout: function () {
+        QG.post('/auth/logout').then(function () { location.href = '/login.html'; })
+          .catch(function () { location.href = '/login.html'; });
       }
     }
   };
