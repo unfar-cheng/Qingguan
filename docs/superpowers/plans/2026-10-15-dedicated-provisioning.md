@@ -764,14 +764,14 @@ rm -rf /data/qingguan/app/uploads/t<该租户id>
 
 **文件：** 无代码变更；生产操作。
 
-- [ ] **步骤 8.1：全量回归**
+- [x] **步骤 8.1：全量回归**
 
 ```bash
 php83 tests/run.php 2>&1 | tail -1        # 预期 68 passed, 0 failed
 php83 tests/guard_no_raw_business_sql.php | tail -1   # guard ok
 ```
 
-- [ ] **步骤 8.2：breeder 建开通账号（SSH `ssh root@breeder`，MySQL 8.0 `sudo mysql -u root`）**
+- [x] **步骤 8.2：breeder 建开通账号（SSH `ssh root@breeder`，MySQL 8.0 `sudo mysql -u root`）**
 
 ```sql
 CREATE USER IF NOT EXISTS 'qg_provision'@'localhost' IDENTIFIED BY '<生产强密码>';
@@ -790,13 +790,13 @@ FLUSH PRIVILEGES;
 建账号前先确认 validate_password 未启用（派生密码为 64 位小写 hex，会被 MEDIUM/STRONG 策略拒绝）：
 `SELECT * FROM mysql.component WHERE component_urn LIKE '%validate_password%';`（有行 = 已启用 → 先 `UNINSTALL COMPONENT 'file://component_validate_password';` 或调整策略，再执行上面的 CREATE USER）。
 
-- [ ] **步骤 8.3：breeder config.php 补 `provision_db` 段**（手工，密码 `<生产强密码>`，勿入库）。
+- [x] **步骤 8.3：breeder config.php 补 `provision_db` 段**（手工，密码 `<生产强密码>`，勿入库）。
 
-- [ ] **步骤 8.4：rsync 发布**（与既有发布流程一致，排除 `.git` / `api/config/config.php` / `uploads/` / `api/runtime/` / `ops/apache/breeder/` / `*.swp`，不加 `--delete`，`sudo rsync` 落位 + `chown www-data` + `sudo systemctl reload apache2`）。
+- [x] **步骤 8.4：rsync 发布**（与既有发布流程一致，排除 `.git` / `api/config/config.php` / `uploads/` / `api/runtime/` / `ops/apache/breeder/` / `*.swp`，不加 `--delete`，`sudo rsync` 落位 + `chown www-data` + `sudo systemctl reload apache2`）。
 
-- [ ] **步骤 8.5：生产验证**：`curl -s https://qingguan.sflswall.com.cn/version.json`（新 build）；生产控制面确认 `SELECT COUNT(*) FROM qingguan_control.saas_tenant WHERE mode='dedicated'` 为 0（无专用库，属正常起点）；`php83 scripts/migrate_dedicated.php db/schema.sql --dry-run`（在生产 `/opt/qingguan` 下）输出「没有已开通的专用库，无事可做」。
+- [x] **步骤 8.5：生产验证**：`curl -s https://qingguan.sflswall.com.cn/version.json`（新 build）；生产控制面确认 `SELECT COUNT(*) FROM qingguan_control.saas_tenant WHERE mode='dedicated'` 为 0（无专用库，属正常起点）；`php83 scripts/migrate_dedicated.php db/schema.sql --dry-run`（在生产 `/opt/qingguan` 下）输出「没有已开通的专用库，无事可做」。
 
-- [ ] **步骤 8.6：推送 main**：`git push origin main`（执行过程中应已随时推送，此处确认同步）。
+- [x] **步骤 8.6：推送 main**：`git push origin main`（执行过程中应已随时推送，此处确认同步）。
 
 ---
 
@@ -810,3 +810,13 @@ FLUSH PRIVILEGES;
 ## 执行记录
 
 （执行时逐任务追加：日期 + commit + 结果/问题）
+
+### 任务 8 执行记录（2026-10-16，控制者手工执行）
+
+- 8.1 全量回归：68 passed, 0 failed + guard ok（main 合并后复跑）。
+- 8.2 生产备份 `/var/backups/qingguan/pre-dedicated-20261016.sql`；validate_password 未启用（mysql.component 0 行）；`qg_provision` 双 host 创建（权限与计划 SQL 逐条一致）；**MySQL 8.0 DDL 实测**（最终审查条件 1）：用 qg_provision 对一次性库名跑 建库/建账号/ALTER 归位/GRANT 四条 DDL → 派生账号登录成功 → 手工清理无残留。全程密码不回显。
+- 8.3 config.php 补 provision_db 段（php var_export 程序化插入，备份 `/var/backups/qingguan/config.php.pre_provision.bak`；账号密码用 ALTER 后的现值，临时文件即用即删）。
+- 8.4 rsync 发布（排除清单同前，不加 --delete）+ chown + `systemctl reload apache2`。
+- 8.5 生产验证三件套：version.json build=`f8bd2cf9f7`；未登录 /api/platform/me → 401；生产 `/opt/qingguan` 下 `php scripts/migrate_dedicated.php db/schema.sql --dry-run` → 「没有已开通的专用库，无事可做」（provision_db 连接与控制面查询均正常）。
+- 8.6 main 已推送（eac63c9..d53735f，fast-forward，分支 feat/dedicated-provisioning 按惯例保留）。
+- 备注：生产首个专用租户开通时建议人工盯 `saas_audit` 的 `provision_failed`（DDL 已实测，风险敞口很小）。
