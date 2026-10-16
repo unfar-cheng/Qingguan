@@ -158,3 +158,45 @@ t('审核端到端：注册→approve→新租户管理员可登录→重复 app
     ControlDb::exec('DELETE FROM saas_tenant WHERE id = ?', [$tid]);
     @unlink($jar);
 });
+
+t('audits 审计日志：分页 + action/租户代码筛选 + 未知租户恒空集', function () {
+    if (!qg_site_up()) { return; }
+    $jar = platform_jar();
+    if (!$jar) { echo "      平台超管不可用，跳过\n"; return; }
+    $tid = 999904;
+    $mark = '审计冒烟' . substr(md5(uniqid()), 0, 8);
+    try {
+        ControlDb::exec('DELETE FROM saas_tenant WHERE id = ?', [$tid]);
+        ControlDb::exec("INSERT INTO saas_tenant (id, code, name, mode, status, admin_username, applied_at) VALUES (?, 'sm999904', '审计冒烟企业', 'shared', 'active', 'boss', NOW())", [$tid]);
+        ControlDb::exec("DELETE FROM saas_audit WHERE target_type = 'tenant' AND target_id = ?", [$tid]);
+        ControlDb::insert('saas_audit', ['platform_user_id' => 1, 'action' => 'approve', 'target_type' => 'tenant', 'target_id' => $tid, 'detail' => $mark . '-通过', 'ip' => '127.0.0.1']);
+        ControlDb::insert('saas_audit', ['platform_user_id' => 1, 'action' => 'provision_failed', 'target_type' => 'tenant', 'target_id' => $tid, 'detail' => $mark . '-失败', 'ip' => '127.0.0.1']);
+        ControlDb::insert('saas_audit', ['platform_user_id' => null, 'action' => 'register', 'target_type' => 'tenant', 'target_id' => $tid, 'detail' => json_encode(['code' => 'sm999904']), 'ip' => '127.0.0.1']);
+        // 不筛：三条都在，且 join 出租户代码与操作人
+        $r = qg_curl('/api/platform/audits?pageSize=50', ['-b', $jar]);
+        assert_contains($r, '"code":0', '审计接口应可访问：' . $r);
+        assert_contains($r, $mark . '-通过', 'approve 行应在列：' . $r);
+        assert_contains($r, $mark . '-失败', 'provision_failed 行应在列：' . $r);
+        assert_contains($r, '"tenant_code":"sm999904"', '应 join 出租户代码：' . $r);
+        assert_contains($r, '"operator":"platform"', '应 join 出操作人：' . $r);
+        assert_contains($r, '"detail":"{\"code\":\"sm999904\"}"', 'register 行 operator 应为 null（申请自注册）：' . $r);
+        // action 筛选：只留 provision_failed
+        $r = qg_curl('/api/platform/audits?action=provision_failed&tenant=sm999904', ['-b', $jar]);
+        assert_contains($r, $mark . '-失败', 'action 筛选应命中失败行：' . $r);
+        assert_true(strpos($r, $mark . '-通过') === false, 'action 筛选应排除通过行：' . $r);
+        // 租户代码筛选
+        $r = qg_curl('/api/platform/audits?tenant=sm999904', ['-b', $jar]);
+        assert_true(strpos($r, $mark . '-通过') !== false && strpos($r, $mark . '-失败') !== false, '租户筛选应命中该租户全部行：' . $r);
+        assert_true(strpos($r, '"tenant_code":"sm999903"') === false, '不应混入其他租户的行：' . $r);
+        // 未知租户代码：恒空集（比静默忽略条件安全）
+        $r = qg_curl('/api/platform/audits?tenant=no-such-code', ['-b', $jar]);
+        assert_contains($r, '"total":0', '未知租户代码应返回空集：' . $r);
+        // 非法 action：忽略该条件（不 500、不注入）
+        $r = qg_curl('/api/platform/audits?action=drop%20table', ['-b', $jar]);
+        assert_contains($r, '"code":0', '非法 action 应被忽略而非报错：' . $r);
+    } finally {
+        ControlDb::exec("DELETE FROM saas_audit WHERE target_type = 'tenant' AND target_id = ?", [$tid]);
+        ControlDb::exec('DELETE FROM saas_tenant WHERE id = ?', [$tid]);
+    }
+    @unlink($jar);
+});

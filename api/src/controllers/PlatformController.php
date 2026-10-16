@@ -19,6 +19,7 @@ class PlatformController
         $r->post('/platform/logout', [self::class, 'logout']);
         $r->get('/platform/me', [self::class, 'me']);
         $r->get('/platform/tenants', [self::class, 'tenants']);
+        $r->get('/platform/audits', [self::class, 'audits']);
         $r->post('/platform/tenants/{id}/approve', [self::class, 'approve']);
         $r->post('/platform/tenants/{id}/reject', [self::class, 'reject']);
         $r->post('/platform/tenants/{id}/suspend', [self::class, 'suspend']);
@@ -78,6 +79,45 @@ class PlatformController
                     p.name AS plan_name
                FROM saas_tenant t LEFT JOIN saas_plan p ON p.id = t.plan_id
               WHERE {$where} ORDER BY (t.status = 'pending') DESC, t.id DESC LIMIT {$size} OFFSET {$offset}",
+            $bind
+        );
+        Response::page($rows, $total, $page, $size);
+    }
+
+    /** 审计动作白名单：筛选参数只接受这些值，其余静默忽略（不 500、不注入） */
+    private const AUDIT_ACTIONS = ['register', 'approve', 'reject', 'suspend', 'enable', 'login', 'provision_failed'];
+
+    /** 审计日志（只读）：时间倒序，可按动作与目标租户（代码）筛选。platform_user_id 为空 = 申请人自注册。 */
+    public static function audits(): void
+    {
+        Auth::requirePlatform();
+        [$page, $size, $offset] = Req::page();
+        $where = '1=1';
+        $bind  = [];
+        $action = Req::str('action');
+        if ($action !== '' && in_array($action, self::AUDIT_ACTIONS, true)) {
+            $where .= ' AND a.action = ?';
+            $bind[] = $action;
+        }
+        $code = strtolower(trim(Req::str('tenant')));
+        if ($code !== '') {
+            $tid = ControlDb::val('SELECT id FROM saas_tenant WHERE code = ? LIMIT 1', [$code]);
+            // 不存在的租户代码返回恒空集而不是忽略条件——运营不会把「查无此租户」误读成「该租户没有审计记录」
+            if (!$tid) {
+                Response::page([], 0, $page, $size);
+            }
+            $where .= ' AND a.target_type = ? AND a.target_id = ?';
+            $bind[] = 'tenant';
+            $bind[] = (int) $tid;
+        }
+        $total = (int) ControlDb::val("SELECT COUNT(*) FROM saas_audit a WHERE {$where}", $bind);
+        $rows  = ControlDb::all(
+            "SELECT a.id, a.action, a.target_id, t.code AS tenant_code, t.name AS tenant_name,
+                    p.username AS operator, a.detail, a.ip, a.created_at
+               FROM saas_audit a
+               LEFT JOIN saas_tenant t ON t.id = a.target_id
+               LEFT JOIN saas_platform_user p ON p.id = a.platform_user_id
+              WHERE {$where} ORDER BY a.id DESC LIMIT {$size} OFFSET {$offset}",
             $bind
         );
         Response::page($rows, $total, $page, $size);

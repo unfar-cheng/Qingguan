@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>租户审核 · 平台管理</title>
+<title>平台管理 · 清关管理系统</title>
 <link rel="icon" href="/favicon.ico">
 <link rel="stylesheet" href="/assets/vendor/element-plus.css">
 <link rel="stylesheet" href="/assets/css/app.css">
@@ -12,9 +12,13 @@
 <div id="app" v-cloak>
 <div class="page" v-loading="loading">
   <div class="page-head">
-    <h2 style="margin:0">租户审核</h2>
+    <h2 style="margin:0">平台管理</h2>
     <div class="spacer"></div>
-    <el-radio-group v-model="status" @change="function () { q.page = 1; load(); }">
+    <el-radio-group v-model="view" @change="onView">
+      <el-radio-button value="tenants">租户审核</el-radio-button>
+      <el-radio-button value="audits">审计日志</el-radio-button>
+    </el-radio-group>
+    <el-radio-group v-if="view === 'tenants'" v-model="status" @change="function () { q.page = 1; load(); }">
       <el-radio-button value="pending">待审核</el-radio-button>
       <el-radio-button value="active">已开通</el-radio-button>
       <el-radio-button value="rejected">已驳回</el-radio-button>
@@ -23,7 +27,7 @@
     </el-radio-group>
     <el-button @click="logout">退出</el-button>
   </div>
-  <div class="card">
+  <div class="card" v-if="view === 'tenants'">
     <el-table :data="rows">
       <el-table-column prop="id" label="ID" width="70"></el-table-column>
       <el-table-column prop="code" label="租户代码" width="120"></el-table-column>
@@ -55,8 +59,40 @@
       :total="total" :page-size="q.pageSize" :current-page="q.page"
       @current-change="function (p) { q.page = p; load(); }"></el-pagination>
   </div>
+  <div class="card" v-else v-loading="aLoading">
+    <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
+      <el-select v-model="aAction" placeholder="全部动作" clearable style="width:150px"
+        @change="function () { aq.page = 1; loadAudits(); }">
+        <el-option v-for="a in auditActions" :key="a" :value="a" :label="auditText(a)"></el-option>
+      </el-select>
+      <el-input v-model="aTenant" placeholder="按租户代码过滤" clearable style="width:180px"
+        @keyup.enter="function () { aq.page = 1; loadAudits(); }"
+        @clear="function () { aq.page = 1; loadAudits(); }"></el-input>
+      <el-button type="primary" plain @click="function () { aq.page = 1; loadAudits(); }">查询</el-button>
+    </div>
+    <el-table :data="aRows" :row-class-name="auditRowClass">
+      <el-table-column prop="created_at" label="时间" width="160"></el-table-column>
+      <el-table-column label="动作" width="120">
+        <template #default="s"><el-tag :type="auditTag(s.row.action)">{{ auditText(s.row.action) }}</el-tag></template>
+      </el-table-column>
+      <el-table-column label="租户" min-width="170">
+        <template #default="s">{{ s.row.tenant_code ? (s.row.tenant_code + ' · ' + s.row.tenant_name) : '—' }}</template>
+      </el-table-column>
+      <el-table-column label="操作人" width="110">
+        <template #default="s">{{ s.row.operator || '申请人' }}</template>
+      </el-table-column>
+      <el-table-column prop="detail" label="详情" min-width="260" show-overflow-tooltip></el-table-column>
+      <el-table-column prop="ip" label="IP" width="130"></el-table-column>
+    </el-table>
+    <el-pagination style="margin-top:12px;justify-content:flex-end" layout="total, prev, pager, next"
+      :total="aTotal" :page-size="aq.pageSize" :current-page="aq.page"
+      @current-change="function (p) { aq.page = p; loadAudits(); }"></el-pagination>
+  </div>
 </div>
 </div>
+<style>
+  .el-table .audit-fail-row td.el-table__cell { background: #fef0f0; }
+</style>
 <script>window.QG_LOGIN_URL = '/admin-login.html';</script>
 <script src="/assets/vendor/vue.global.prod.js"></script>
 <script src="/assets/vendor/element-plus.full.min.js"></script>
@@ -66,7 +102,12 @@
 QG.mount(function () {
   return {
     data: function () {
-      return { rows: [], total: 0, loading: false, status: 'pending', q: { page: 1, pageSize: 20 } };
+      return {
+        rows: [], total: 0, loading: false, status: 'pending', q: { page: 1, pageSize: 20 },
+        view: 'tenants',
+        aRows: [], aTotal: 0, aLoading: false, aAction: '', aTenant: '', aq: { page: 1, pageSize: 20 },
+        auditActions: ['register', 'approve', 'reject', 'suspend', 'enable', 'login', 'provision_failed']
+      };
     },
     created: function () {
       var self = this;
@@ -85,6 +126,28 @@ QG.mount(function () {
           .then(function (d) { self.rows = d.list || []; self.total = d.total || 0; })
           .catch(function (e) { QG.err(e); })
           .finally(function () { self.loading = false; });
+      },
+      onView: function () {
+        if (this.view === 'audits') { this.loadAudits(); }
+      },
+      loadAudits: function () {
+        var self = this;
+        self.aLoading = true;
+        QG.get('/platform/audits', {
+          action: self.aAction, tenant: (self.aTenant || '').trim(),
+          page: self.aq.page, pageSize: self.aq.pageSize
+        }).then(function (d) { self.aRows = d.list || []; self.aTotal = d.total || 0; })
+          .catch(function (e) { QG.err(e); })
+          .finally(function () { self.aLoading = false; });
+      },
+      auditText: function (a) {
+        return { register: '注册申请', approve: '通过开通', reject: '驳回', suspend: '停用', enable: '启用', login: '平台登录', provision_failed: '开通失败' }[a] || a;
+      },
+      auditTag: function (a) {
+        return { approve: 'success', enable: 'success', reject: 'danger', provision_failed: 'danger', suspend: 'warning', register: 'info', login: 'info' }[a] || 'info';
+      },
+      auditRowClass: function (o) {
+        return o.row && o.row.action === 'provision_failed' ? 'audit-fail-row' : '';
       },
       statusText: function (s) {
         return { pending: '待审核', active: '已开通', rejected: '已驳回', suspended: '已停用' }[s] || s;
