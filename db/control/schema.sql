@@ -92,4 +92,4 @@ CREATE TABLE IF NOT EXISTS `saas_bill` (
   `remark`       VARCHAR(200) NOT NULL DEFAULT '',
   PRIMARY KEY (`id`),
   KEY `idx_tenant` (`tenant_id`,`status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='账单';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='账单';
