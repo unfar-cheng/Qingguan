@@ -18,6 +18,7 @@
       <el-radio-button value="tenants">租户审核</el-radio-button>
       <el-radio-button value="audits">审计日志</el-radio-button>
       <el-radio-button value="bills">账单</el-radio-button>
+      <el-radio-button value="accounts">账号</el-radio-button>
     </el-radio-group>
     <el-radio-group v-if="view === 'tenants'" v-model="status" @change="function () { q.page = 1; load(); }">
       <el-radio-button value="pending">待审核</el-radio-button>
@@ -26,6 +27,7 @@
       <el-radio-button value="suspended">已停用</el-radio-button>
       <el-radio-button value="">全部</el-radio-button>
     </el-radio-group>
+    <el-button @click="openPwd">修改密码</el-button>
     <el-button @click="logout">退出</el-button>
   </div>
   <div class="card" v-if="view === 'tenants'">
@@ -48,13 +50,14 @@
       <el-table-column label="状态" width="90">
         <template #default="s"><el-tag :type="tagType(s.row.status)">{{ statusText(s.row.status) }}</el-tag></template>
       </el-table-column>
-      <el-table-column label="操作" width="210" fixed="right">
+      <el-table-column label="操作" width="300" fixed="right">
         <template #default="s">
           <template v-if="s.row.status === 'pending'">
             <el-button size="small" type="primary" @click="approve(s.row)">通过</el-button>
             <el-button size="small" type="danger" plain @click="reject(s.row)">驳回</el-button>
           </template>
           <el-button v-if="s.row.status === 'active'" size="small" type="warning" plain @click="suspend(s.row)">停用</el-button>
+          <el-button v-if="s.row.status === 'active'" size="small" plain @click="resetPwd(s.row)">重置密码</el-button>
           <el-button v-if="s.row.status === 'suspended'" size="small" type="success" plain @click="enable(s.row)">启用</el-button>
         </template>
       </el-table-column>
@@ -93,6 +96,11 @@
       @current-change="function (p) { aq.page = p; loadAudits(); }"></el-pagination>
   </div>
   <div class="card" v-else-if="view === 'bills'" v-loading="bLoading">
+    <div style="margin-bottom:12px">
+      <div style="margin-bottom:6px;color:#909399">收款信息（租户「账单中心」展示，保存后即时生效；留空保存表示清空该项，租户端回落到系统默认提示）</div>
+      <el-input type="textarea" v-model="noticeDraft" :rows="3" placeholder="对公账户、开户行、账号、汇款备注要求"></el-input>
+      <el-button size="small" type="primary" style="margin-top:6px" :loading="noticeSaving" @click="saveNotice">保存收款信息</el-button>
+    </div>
     <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
       <el-select v-model="bStatus" placeholder="全部状态" clearable style="width:140px"
         @change="function () { bq.page = 1; loadBills(); }">
@@ -140,6 +148,60 @@
       :total="bTotal" :page-size="bq.pageSize" :current-page="bq.page"
       @current-change="function (p) { bq.page = p; loadBills(); }"></el-pagination>
   </div>
+  <div class="card" v-else-if="view === 'accounts'" v-loading="accLoading">
+    <div style="margin-bottom:12px">
+      <el-button type="primary" @click="openAccount">新增账号</el-button>
+    </div>
+    <el-table :data="accRows">
+      <el-table-column prop="id" label="ID" width="70"></el-table-column>
+      <el-table-column prop="username" label="账号" width="130"></el-table-column>
+      <el-table-column prop="real_name" label="姓名" width="120"></el-table-column>
+      <el-table-column prop="email" label="邮箱" min-width="160"></el-table-column>
+      <el-table-column label="状态" width="90">
+        <template #default="s">
+          <el-tag :type="s.row.status === 1 ? 'success' : 'info'">{{ s.row.status === 1 ? '启用' : '停用' }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="last_login_at" label="最近登录" width="160">
+        <template #default="s">{{ s.row.last_login_at || '—' }}</template>
+      </el-table-column>
+      <el-table-column prop="created_at" label="创建时间" width="160"></el-table-column>
+      <el-table-column label="操作" width="230" fixed="right">
+        <template #default="s">
+          <template v-if="s.row.status === 1">
+            <el-button size="small" type="warning" plain @click="accountDisable(s.row)">停用</el-button>
+          </template>
+          <template v-else>
+            <el-button size="small" type="success" plain @click="accountEnable(s.row)">启用</el-button>
+          </template>
+          <el-button size="small" type="primary" plain @click="accountReset(s.row)">重置密码</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+  </div>
+  <el-dialog v-model="accVisible" title="新增平台账号" width="420px">
+    <el-form label-width="90px">
+      <el-form-item label="账号" required><el-input v-model="accForm.username" placeholder="3-30 位字母、数字或下划线"></el-input></el-form-item>
+      <el-form-item label="姓名" required><el-input v-model="accForm.real_name"></el-input></el-form-item>
+      <el-form-item label="邮箱"><el-input v-model="accForm.email"></el-input></el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="accVisible = false">取消</el-button>
+      <el-button type="primary" :loading="accSaving" @click="createAccount">创建</el-button>
+    </template>
+  </el-dialog>
+  <el-dialog v-model="pwdVisible" :title="pwdForce ? '首次登录请修改密码' : '修改密码'" width="420px"
+    :close-on-click-modal="!pwdForce" :close-on-press-escape="!pwdForce" :show-close="!pwdForce">
+    <el-form label-width="90px">
+      <el-form-item label="原密码"><el-input v-model="pwdForm.old_password" type="password" show-password></el-input></el-form-item>
+      <el-form-item label="新密码"><el-input v-model="pwdForm.new_password" type="password" show-password placeholder="至少 10 位"></el-input></el-form-item>
+      <el-form-item label="确认新密码"><el-input v-model="pwdForm.confirm" type="password" show-password></el-input></el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button v-if="!pwdForce" @click="pwdVisible = false">取消</el-button>
+      <el-button type="primary" :loading="saving" @click="savePwd">确定</el-button>
+    </template>
+  </el-dialog>
 </div>
 </div>
 <style>
@@ -159,6 +221,11 @@ QG.mount(function () {
         view: 'tenants',
         aRows: [], aTotal: 0, aLoading: false, aAction: '', aTenant: '', aq: { page: 1, pageSize: 20 },
         bRows: [], bTotal: 0, bLoading: false, bStatus: '', bTenant: '', bq: { page: 1, pageSize: 20 },
+        accRows: [], accLoading: false, accVisible: false, accSaving: false,
+        accForm: { username: '', real_name: '', email: '' },
+        noticeDraft: '', noticeSaving: false,
+        pwdVisible: false, pwdForce: false, saving: false,
+        pwdForm: { old_password: '', new_password: '', confirm: '' },
         auditActions: ['register', 'approve', 'reject', 'suspend', 'enable', 'login', 'bill_paid', 'bill_void', 'provision_failed']
       };
     },
@@ -166,7 +233,14 @@ QG.mount(function () {
       var self = this;
       /* 先探明会话：单 cookie 双 scope，租户令牌调平台接口一律 403（两边令牌互不通用），
          与其每个操作都弹错，不如直接送去平台登录页。未登录的 401 由 common.js 自动跳 admin-login。 */
-      QG.get('/platform/me').then(function () { self.load(); }).catch(function (e) {
+      QG.get('/platform/me').then(function (u) {
+        if (u && u.must_change_password) {
+          self.pwdForce = true;
+          self.pwdForm = { old_password: '', new_password: '', confirm: '' };
+          self.pwdVisible = true;
+        }
+        self.load();
+      }).catch(function (e) {
         if (e && e.code === 403) { location.href = '/admin-login.html'; return; }
         QG.err(e);
       });
@@ -182,7 +256,96 @@ QG.mount(function () {
       },
       onView: function () {
         if (this.view === 'audits') { this.loadAudits(); }
-        if (this.view === 'bills') { this.loadBills(); }
+        if (this.view === 'bills') { this.loadBills(); this.loadNotice(); }
+        if (this.view === 'accounts') { this.loadAccounts(); }
+      },
+      openPwd: function () {
+        this.pwdForm = { old_password: '', new_password: '', confirm: '' };
+        this.pwdForce = false;
+        this.pwdVisible = true;
+      },
+      savePwd: function () {
+        var f = this.pwdForm;
+        if (!f.old_password || !f.new_password) { return QG.warn('请填写完整'); }
+        if (f.new_password.length < 10) { return QG.warn('新密码至少 10 位'); }
+        if (f.new_password !== f.confirm) { return QG.warn('两次输入的新密码不一致'); }
+        var self = this;
+        self.saving = true;
+        QG.post('/platform/password', { old_password: f.old_password, new_password: f.new_password })
+          .then(function () { QG.toast('密码已修改，请重新登录'); setTimeout(function () { location.href = '/admin-login.html'; }, 800); })
+          .catch(function (e) { QG.err(e); })
+          .finally(function () { self.saving = false; });
+      },
+      /* 收款信息：提交空串 = 清空该项，租户端回落到系统默认提示（后端 SettingRepo::delete 语义） */
+      loadNotice: function () {
+        var self = this;
+        QG.get('/platform/settings').then(function (d) { self.noticeDraft = (d && d.billing_notice) || ''; })
+          .catch(function () {});
+      },
+      saveNotice: function () {
+        var self = this;
+        var v = (self.noticeDraft || '').trim();
+        self.noticeSaving = true;
+        QG.put('/platform/settings', { billing_notice: v })
+          .then(function () {
+            QG.toast(v ? '收款信息已更新，租户账单中心即时生效' : '收款信息已清空，租户账单中心回落到系统默认提示');
+          })
+          .catch(function (e) { QG.err(e); })
+          .finally(function () { self.noticeSaving = false; });
+      },
+      loadAccounts: function () {
+        var self = this;
+        self.accLoading = true;
+        QG.get('/platform/accounts').then(function (d) { self.accRows = d || []; })
+          .catch(function (e) { QG.err(e); })
+          .finally(function () { self.accLoading = false; });
+      },
+      openAccount: function () {
+        this.accForm = { username: '', real_name: '', email: '' };
+        this.accVisible = true;
+      },
+      createAccount: function () {
+        var self = this;
+        var f = self.accForm;
+        if (!f.username || !f.real_name) { return QG.warn('请填写账号和姓名'); }
+        self.accSaving = true;
+        QG.post('/platform/accounts', f)
+          .then(function (d) {
+            self.accVisible = false;
+            self.showTempPassword(d.temp_password, f.username);
+            self.loadAccounts();
+          })
+          .catch(function (e) { QG.err(e); })
+          .finally(function () { self.accSaving = false; });
+      },
+      accountDisable: function (row) {
+        var self = this;
+        QG.confirm('确定停用「' + row.username + '」？其将无法登录平台。').then(function () {
+          QG.post('/platform/accounts/' + row.id + '/disable', {})
+            .then(function () { QG.toast('已停用'); self.loadAccounts(); })
+            .catch(function (e) { QG.err(e); });
+        }).catch(function () {});
+      },
+      accountEnable: function (row) {
+        var self = this;
+        QG.post('/platform/accounts/' + row.id + '/enable', {})
+          .then(function () { QG.toast('已启用'); self.loadAccounts(); })
+          .catch(function (e) { QG.err(e); });
+      },
+      accountReset: function (row) {
+        var self = this;
+        QG.confirm('将为「' + row.username + '」生成新的临时密码，旧密码立即失效，其首登须修改。继续？').then(function () {
+          QG.post('/platform/accounts/' + row.id + '/reset-password', {})
+            .then(function (d) { self.showTempPassword(d.temp_password, row.username); })
+            .catch(function (e) { QG.err(e); });
+        }).catch(function () {});
+      },
+      showTempPassword: function (temp, username) {
+        ElementPlus.ElMessageBox.alert(
+          '<div style="font-size:20px;font-family:monospace;letter-spacing:2px;text-align:center">' + temp + '</div>'
+          + '<div style="color:#909399;font-size:12px;text-align:center">仅此一次展示，请复制后通过线下渠道告知「' + username + '」</div>',
+          '临时密码',
+          { dangerouslyUseHTMLString: true, confirmButtonText: '我已线下交付' });
       },
       loadAudits: function () {
         var self = this;
@@ -281,6 +444,14 @@ QG.mount(function () {
         QG.post('/platform/tenants/' + row.id + '/enable', {})
           .then(function () { QG.toast('已启用'); self.load(); })
           .catch(function (e) { QG.err(e); });
+      },
+      resetPwd: function (row) {
+        var self = this;
+        QG.confirm('将为「' + row.code + '」的管理员 ' + row.admin_username + ' 生成新的临时密码，旧密码立即失效，客户首登须修改。继续？').then(function () {
+          QG.post('/platform/tenants/' + row.id + '/reset-admin-password', {})
+            .then(function (d) { self.showTempPassword(d.temp_password, row.admin_username); self.load(); })
+            .catch(function (e) { QG.err(e); });
+        }).catch(function () {});
       },
       logout: function () {
         QG.post('/platform/logout', {}).finally(function () { location.href = '/admin-login.html'; });

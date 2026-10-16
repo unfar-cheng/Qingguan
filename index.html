@@ -97,14 +97,15 @@
   </div>
 
   <!-- 修改密码 -->
-  <el-dialog v-model="pwdVisible" title="修改密码" width="420px">
+  <el-dialog v-model="pwdVisible" :title="pwdForce ? '首次登录请修改密码' : '修改密码'" width="420px"
+    :close-on-click-modal="!pwdForce" :close-on-press-escape="!pwdForce" :show-close="!pwdForce">
     <el-form label-width="90px">
       <el-form-item label="原密码"><el-input v-model="pwdForm.old_password" type="password" show-password></el-input></el-form-item>
       <el-form-item label="新密码"><el-input v-model="pwdForm.new_password" type="password" show-password placeholder="至少 6 位"></el-input></el-form-item>
       <el-form-item label="确认新密码"><el-input v-model="pwdForm.confirm" type="password" show-password></el-input></el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="pwdVisible = false">取消</el-button>
+      <el-button v-if="!pwdForce" @click="pwdVisible = false">取消</el-button>
       <el-button type="primary" :loading="saving" @click="savePwd">确定</el-button>
     </template>
   </el-dialog>
@@ -127,7 +128,7 @@ QG.mount(function () {
         build: '',
         updateReady: null,      /* 检测到但还没刷新的新版号（用来避免重复提示） */
         updateInfo: null,       /* 新版号的完整信息（含构建时间），刷新后同步给水印用 */
-        pwdVisible: false, saving: false,
+        pwdVisible: false, pwdForce: false, saving: false,
         billTipClosed: false,
         pwdForm: { old_password: '', new_password: '', confirm: '' },
         titleMap: {}
@@ -189,6 +190,11 @@ QG.mount(function () {
       QG.get('/auth/me').then(function (u) {
         if (u && u.scope === 'platform') { location.href = '/platform.html'; return; }
         self.user = u;
+        if (u && u.must_change_password) {
+          self.pwdForce = true;
+          self.pwdForm = { old_password: '', new_password: '', confirm: '' };
+          self.pwdVisible = true;
+        }
         /* 先取版号再开首页：这样第一个标签的地址就带 ?_v=，不会撞上浏览器里缓存的旧副本。
            拿不到版号（服务器还没放 version.json）也照常打开，不能让新机制挡住正常使用。 */
         QG.fetchBuild().then(function (v) {
