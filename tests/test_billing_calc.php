@@ -27,9 +27,9 @@ t('Billing::state：边界（恰好到期日、宽限最后一天）', function 
 });
 
 t('Billing::isExpired：拦截判定与账单无关', function () {
-    assert_true(!Billing::isExpired(null));
-    assert_true(!Billing::isExpired(date('Y-m-d H:i:s', T0 - 10 * 86400)), '宽限内不拦');
-    assert_true(Billing::isExpired(date('Y-m-d H:i:s', T0 - 31 * 86400)), '超宽限拦截');
+    assert_true(!Billing::isExpired(null, T0));
+    assert_true(!Billing::isExpired(date('Y-m-d H:i:s', T0 - 10 * 86400), T0), '宽限内不拦');
+    assert_true(Billing::isExpired(date('Y-m-d H:i:s', T0 - 31 * 86400), T0), '超宽限拦截');
 });
 
 t('Billing::nextExpiry：三分支重算', function () {
