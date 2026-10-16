@@ -28,6 +28,7 @@ class BillRepo
         ]);
     }
 
+    /** 平台侧专用（按 id 查，无租户过滤）；租户侧一律走 forTenant()，勿用本方法。 */
     public static function findUnpaid(int $billId): ?array
     {
         $r = ControlDb::one('SELECT * FROM saas_bill WHERE id = ? AND status = ? LIMIT 1', [$billId, 'unpaid']);
