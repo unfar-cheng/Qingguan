@@ -468,6 +468,7 @@ SELECT @tenant_id, 0, s.n, s.c, 1, s.pa, s.i, s.so, 1
     UNION ALL SELECT '抬头管理',   'org',               NULL,                       'OfficeBuilding',   4
     UNION ALL SELECT '财务管理',   'finance',           NULL,                       'Money',            5
     UNION ALL SELECT '系统设置',   'system',            NULL,                       'Setting',          6
+    UNION ALL SELECT '账单中心',   'billing',           '/pages/billing.html',      'Wallet',           2
   ) AS s
 ON DUPLICATE KEY UPDATE
   `name` = s.n, `parent_id` = 0, `path` = s.pa, `icon` = s.i, `sort` = s.so;
