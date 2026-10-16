@@ -357,7 +357,7 @@ QG.mount(function () {
         }
       },
       onUserCmd: function (cmd) {
-        if (cmd === 'pwd') { this.pwdForm = { old_password: '', new_password: '', confirm: '' }; this.pwdVisible = true; }
+        if (cmd === 'pwd') { this.pwdForm = { old_password: '', new_password: '', confirm: '' }; this.pwdForce = false; this.pwdVisible = true; }
         if (cmd === 'out') {
           var self = this;
           QG.confirm('确定退出登录吗？', '退出').then(function () {
