@@ -55,4 +55,19 @@ class ControlDb
         $st = self::pdo()->prepare($sql); $st->execute(array_values($data));
         return (int) self::pdo()->lastInsertId();
     }
+
+    public static function begin(): void
+    {
+        if (!self::pdo()->inTransaction()) { self::pdo()->beginTransaction(); }
+    }
+
+    public static function commit(): void
+    {
+        if (self::pdo()->inTransaction()) { self::pdo()->commit(); }
+    }
+
+    public static function rollback(): void
+    {
+        if (self::pdo()->inTransaction()) { self::pdo()->rollBack(); }
+    }
 }

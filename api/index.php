@@ -58,6 +58,7 @@ $router = new \QG\Router();
 // TenantController 必须在 PlanController 之前注册：其公开路由 /plans/public
 // 若排在 /plans/{id}（带鉴权）之后会被截住返回 401（Router 按注册顺序首次匹配）。
 \QG\controllers\TenantController::routes($router);
+\QG\controllers\BillController::routes($router);
 \QG\controllers\OrderController::routes($router);
 \QG\controllers\PlanController::routes($router);
 \QG\controllers\OrgController::routes($router);

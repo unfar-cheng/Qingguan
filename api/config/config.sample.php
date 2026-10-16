@@ -34,6 +34,7 @@ return [
         'upload_url'   => '/uploads',
         'max_upload'   => 50 * 1024 * 1024,
         'allow_ext'    => ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'zip', 'rar', 'txt'],
+        'billing_notice' => '对公账户：户名/账号/开户行（部署时填写）· 汇款请备注租户代码',
         'page_size'    => 50,
         'debug'        => false,
     ],
