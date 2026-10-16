@@ -458,6 +458,8 @@ ON DUPLICATE KEY UPDATE `name` = VALUES(`name`), `remark` = VALUES(`remark`);
 --
 --   菜单位次与图标以现网租户 #1 为准：「创建订单」是**顶级菜单**（不是订单管理
 --   的子项），二级菜单不设图标，仅「字典维护」保留了 Collection 图标。
+--   2026-10-16：「账单中心」从顶级菜单挪到「系统设置」下（业务面不常用），
+--   本文件与 db/migration_20261016_menu_billing_system.sql 必须同步改。
 
 -- 1) 顶级菜单（parent_id 固定 0，不涉及自引用）
 INSERT INTO `sys_permission` (`tenant_id`,`parent_id`,`name`,`code`,`type`,`path`,`icon`,`sort`,`status`)
@@ -469,7 +471,6 @@ SELECT @tenant_id, 0, s.n, s.c, 1, s.pa, s.i, s.so, 1
     UNION ALL SELECT '抬头管理',   'org',               NULL,                       'OfficeBuilding',   4
     UNION ALL SELECT '财务管理',   'finance',           NULL,                       'Money',            5
     UNION ALL SELECT '系统设置',   'system',            NULL,                       'Setting',          6
-    UNION ALL SELECT '账单中心',   'billing',           '/pages/billing.html',      'Wallet',           2
   ) AS s
 ON DUPLICATE KEY UPDATE
   `name` = s.n, `parent_id` = 0, `path` = s.pa, `icon` = s.i, `sort` = s.so;
@@ -517,6 +518,7 @@ SELECT @tenant_id, p.`id`, s.n, s.c, 1, s.pa, s.i, s.so, 1
     UNION ALL SELECT '内部员工', 'system.staff',  '/pages/sys-staff.html',      NULL,          2
     UNION ALL SELECT '权限管理', 'system.role',   '/pages/sys-permission.html', NULL,          3
     UNION ALL SELECT '收发信息', 'system.config', '/pages/sys-config.html',     NULL,          4
+    UNION ALL SELECT '账单中心', 'billing',       '/pages/billing.html',        NULL,          5
     UNION ALL SELECT '字典维护', 'system.dict',   '/pages/sys-dict.html',       'Collection', 45
   ) AS s
   JOIN `sys_permission` p ON p.`tenant_id` = @tenant_id AND p.`code` = 'system' AND p.`parent_id` = 0
@@ -551,7 +553,7 @@ UPDATE `sys_permission` AS c JOIN `sys_permission` AS p
    ON p.`tenant_id` = c.`tenant_id` AND p.`code` = 'system' AND p.`parent_id` = 0
    SET c.`parent_id` = p.`id`
  WHERE c.`tenant_id` = @tenant_id
-   AND c.`code` IN ('system.plan', 'system.staff', 'system.role', 'system.config', 'system.dict');
+   AND c.`code` IN ('system.plan', 'system.staff', 'system.role', 'system.config', 'system.dict', 'billing');
 
 -- 4) 按钮级权限：各订单功能的「创建新订单」（type=2）
 --    只决定「能不能点新增按钮 / 能不能调 POST /orders」，**不进左侧菜单**
