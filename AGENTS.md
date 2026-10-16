@@ -32,8 +32,8 @@
 全部在 `/data/qingguan/app` 下执行：
 
 ```bash
-# 跑测试（85 个用例；HTTP 用例需要站点在跑，否则自动跳过）
-php83 tests/run.php                     # 期望 85 passed, 0 failed
+# 跑测试（86 个用例；HTTP 用例需要站点在跑，否则自动跳过）
+php83 tests/run.php                     # 期望 86 passed, 0 failed
 php83 tests/guard_no_raw_business_sql.php   # 期望 guard ok
 
 # 只跑部分 / 指向临时站点
@@ -96,7 +96,7 @@ index.html             外壳：左侧菜单(来自 /api/menu) + 保活 iframe �
 login.html             登录页（租户代码 + 用户名 + 密码；输入租户代码失焦拉 /api/tenant/branding 显示企业品牌）
 register.html          企业自助注册页（公开，→ saas_tenant status=pending）
 admin-login.html       平台管理登录页（公开，→ /api/platform/login）
-platform.html          平台后台四视图：租户审核 / 审计日志 / 账单（含收款信息维护卡）/ 账号（增停启重置），scope=platform；页面在 common.js 之前设 window.QG_LOGIN_URL 跳回平台登录
+platform.html          平台后台五视图（侧栏导航 + 概览看板）：概览（`GET /platform/summary` 数字卡 + 待审核待办）/ 租户审核（支持 `keyword` 搜企业名·代码·联系人·手机·管理员）/ 账单（含收款信息维护卡）/ 审计日志 / 账号（增停启重置），scope=platform；页面在 common.js 之前设 window.QG_LOGIN_URL 跳回平台登录。改这个页面前先读它的页内 `<style>`（平台专用类与 `.toolbar/.stat-*/.cell-*` 都在那里，别去动 assets/css/app.css）
 pages/*.html           17 个子页面
 assets/js/common.js    全局 QG：API 封装、分页列表 mixin、下拉缓存、QG.can、QG.selfCheck
 assets/js/orders.js    QG.orderListPage(module) 生成 4 个订单列表页；assets/js/org.js 同理
@@ -183,7 +183,7 @@ mysql -u<user> -p <库名> -e "SET @tenant_id := <id>; SOURCE db/schema.sql;"
 - 零依赖自建断言器：`tests/lib.php` 提供 `t($name, $fn)`、`assert_true/assert_eq/assert_contains`；`tests/run.php` glob `tests/test_*.php` 后逐个跑，打印 `PASS/FAIL` 并在失败时退出非零。
 - **测试连的是 `api/config/config.php` 指向的真实开发库**（`bootstrap.php` 读 `App::config('db')` / `control_db`）——**没有独立测试库，也没有读 `.env`**。隔离靠使用高号段合成租户 id（9001/9002、9100xx（账单）、9200xx（账号）…）并在用例结束时清理；平台账号造数用 `accpt` 前缀（`tests/test_account_http.php`），审计行按「用例开始时的 `MAX(saas_audit.id)`」删本次新增。因为直连真实库，别在测试里做破坏性操作，**尤其别动 `saas_platform_user` 的 id=1**（平台超管，dev 只播种了这一个）。
 - HTTP 用例走 **`curl` 命令行**（`tests/http.php`，因为 breeder 上没装 `php-curl`），默认打 `QG_BASE` 或 `https://qingguan-dev.sflswall.com.cn`；站点不通会**自动跳过**（`qg_site_up()` 探测 `/api/auth/me`）。部分用例依赖已播种的 `demo / admin / admin123`。
-- 预期基线：`php83 tests/run.php` → `85 passed, 0 failed`；守卫 → `guard ok`。**这两个不绿不要提交。**
+- 预期基线：`php83 tests/run.php` → `86 passed, 0 failed`；守卫 → `guard ok`。**这两个不绿不要提交。**
 - 限流与测试的交互：`register` 5 次/小时/IP、`platform-login` 10 次/10 分钟、`tenant-login` 20 次/10 分钟（存 `api/runtime/ratelimit/`）。一次全量套件恰好用满部分桶——**`tests/bootstrap.php` 在套件启动时会自动清空该目录**，所以重复跑全绿；手工打接口验证时若撞 429，`rm -rf api/runtime/ratelimit/*` 即可。**桶是全局共享的**（同一 IP 的套件内所有文件共用），所以 `tests/test_account_http.php` 会自己再清一次桶（`ac_reset_ratelimit()`，跑完恢复成空），否则它新加的十几次登录会把后面的 `test_platform_api` 顶成 429 假红。
 - **结构把闸**：`tests/test_schema_parity.php` 会把 `db/schema.sql` 里的 21 条 CREATE TABLE 落到当前库（`__parity__` 前缀临时表）再与真实表逐列逐键比对——**改了 `db/migration_*.sql` 的结构却忘了同步 `db/schema.sql` 的 DDL 段时它会红**。这是「每次表结构变更也要维护好 db/schema.sql」的强制手段。
 

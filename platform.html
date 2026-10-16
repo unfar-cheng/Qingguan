@@ -89,7 +89,8 @@
           </div>
 
           <div class="stat-mini">
-            <span>已过期待宽限<b>{{ stat('expired') }}</b></span>
+            <span :title="graceTip()">已过期<b>{{ stat('expired') }}</b></span>
+            <span :title="graceTip()">宽限期内<b>{{ stat('in_grace') }}</b></span>
             <span>独享档租户<b>{{ stat('dedicated') }}</b></span>
             <span>已开通租户<b>{{ stat('active') }}</b></span>
             <span>启用平台账号<b>{{ stat('accounts_on') }}</b></span>
@@ -135,10 +136,9 @@
             <el-table-column label="企业" min-width="220">
               <template #default="s">
                 <div class="cell-main">{{ s.row.name }}</div>
-                <div class="cell-sub">#{{ s.row.id }} · {{ s.row.contact_name }} {{ s.row.contact_phone || s.row.contact_email }}</div>
+                <div class="cell-sub">#{{ s.row.id }} · {{ s.row.code }} · {{ s.row.contact_name }} {{ s.row.contact_phone || s.row.contact_email }}</div>
               </template>
             </el-table-column>
-            <el-table-column prop="code" label="租户代码" width="105"></el-table-column>
             <el-table-column label="套餐" width="175">
               <template #default="s">
                 <div>{{ s.row.plan_name }}</div>
@@ -510,6 +510,12 @@ QG.mount(function () {
       statMoney: function (k) {
         if (!this.sumLoaded) { return '—'; }
         return '¥ ' + QG.money(this.sum[k] === undefined ? 0 : this.sum[k]);
+      },
+      /* 已到期与宽限内的口径说明（超宽限的那部分 = expired - in_grace） */
+      graceTip: function () {
+        if (!this.sumLoaded) { return ''; }
+        var over = (this.sum.expired || 0) - (this.sum.in_grace || 0);
+        return '已过服务期的已开通租户：宽限期内 ' + (this.sum.in_grace || 0) + ' 家，已超宽限 ' + over + ' 家';
       },
       /* 租户动作后：概览的待办/待审核数也要跟着变，不然徽标会停在旧数字上 */
       afterTenantChange: function () {

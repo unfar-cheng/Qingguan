@@ -207,3 +207,57 @@ t('audits 审计日志：分页 + action/租户代码筛选 + 未知租户恒空
     }
     @unlink($jar);
 });
+
+t('概览接口：summary 键齐全且与库一致，租户关键词搜索转义通配符', function () {
+    if (!qg_site_up()) { return; }
+    $jar = platform_jar();
+    if (!$jar) { echo "      平台超管不可用，跳过\n"; return; }
+    $tidPending = 999905;
+    $tidGrace   = 999906;
+    try {
+        foreach ([$tidPending, $tidGrace] as $id) {
+            ControlDb::exec('DELETE FROM saas_tenant WHERE id = ?', [$id]);
+        }
+        ControlDb::exec("INSERT INTO saas_tenant (id, code, name, mode, status, contact_name, contact_phone, admin_username, applied_at, expires_at)
+                         VALUES (?, 'sm999905', '概览冒烟待审企业', 'shared', 'pending', '甲', '13800001111', 'boss', NOW(), NULL)", [$tidPending]);
+        // 已过服务期 5 天 → 落在 30 天宽限期内
+        ControlDb::exec("INSERT INTO saas_tenant (id, code, name, mode, status, contact_name, contact_phone, admin_username, applied_at, expires_at)
+                         VALUES (?, 'sm999906', '概览冒烟宽限企业', 'shared', 'active', '乙', '13800002222', 'boss', NOW(), DATE_SUB(NOW(), INTERVAL 5 DAY))", [$tidGrace]);
+        ControlDb::exec("INSERT INTO saas_bill (tenant_id, cycle, amount, status) VALUES (?, 'year', 1234.00, 'unpaid')", [$tidGrace]);
+
+        $r = qg_curl('/api/platform/summary', ['-b', $jar]);
+        assert_contains($r, '"code":0', 'summary 应可访问：' . $r);
+        $d = json_decode($r, true)['data'] ?? [];
+        foreach (['pending', 'active', 'dedicated', 'expiring', 'expired', 'in_grace', 'unpaid_count', 'unpaid_amount', 'paid_month', 'accounts_on'] as $k) {
+            assert_true(array_key_exists($k, $d), 'summary 应含键 ' . $k . '：' . $r);
+        }
+        assert_true((int) $d['pending'] >= 1, '应统计到刚建的待审租户：' . $r);
+        assert_true((int) $d['in_grace'] >= 1, '过期 5 天的租户应计入宽限期内：' . $r);
+        assert_true((int) $d['expired'] >= (int) $d['in_grace'], 'expired（已过服务期）应不小于 in_grace（宽限期内）：' . $r);
+        $unpaid = json_decode(qg_curl('/api/platform/tenants?status=active&keyword=sm999906&pageSize=1', ['-b', $jar]), true);
+        assert_eq(1, (int) ($unpaid['data']['total'] ?? 0), '关键词应精确命中刚建的租户：' . json_encode($unpaid, JSON_UNESCAPED_UNICODE));
+
+        // 关键词：企业名/代码/联系人/手机/管理员账号 都能命中
+        foreach (['概览冒烟宽限企业', 'sm999906', '乙', '13800002222', 'boss'] as $kw) {
+            $r = qg_curl('/api/platform/tenants?keyword=' . urlencode($kw), ['-b', $jar]);
+            $total = (int) (json_decode($r, true)['data']['total'] ?? 0);
+            assert_true($total >= 1, '关键词「' . $kw . '」应有命中：' . $r);
+        }
+        // LIKE 通配符必须转义：'%'/'_' 不能被当通配符用（否则会命中全部租户）
+        $all = (int) (json_decode(qg_curl('/api/platform/tenants?pageSize=1', ['-b', $jar]), true)['data']['total'] ?? 0);
+        foreach (['%', '_'] as $kw) {
+            $r = qg_curl('/api/platform/tenants?keyword=' . urlencode($kw), ['-b', $jar]);
+            $total = (int) (json_decode($r, true)['data']['total'] ?? 0);
+            assert_true($total < $all, '通配符「' . $kw . '」应被转义、不得命中全部（' . $total . ' vs ' . $all . '）：' . $r);
+        }
+        // 未登录：401
+        assert_contains(qg_curl('/api/platform/summary'), '"code":401', '未登录 summary 应 401');
+    } finally {
+        foreach ([$tidPending, $tidGrace] as $id) {
+            ControlDb::exec('DELETE FROM saas_bill WHERE tenant_id = ?', [$id]);
+            ControlDb::exec("DELETE FROM saas_audit WHERE target_type = 'tenant' AND target_id = ?", [$id]);
+            ControlDb::exec('DELETE FROM saas_tenant WHERE id = ?', [$id]);
+        }
+        @unlink($jar);
+    }
+});

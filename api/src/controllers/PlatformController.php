@@ -125,6 +125,11 @@ class PlatformController
             'expired'       => (int) ControlDb::val(
                 "SELECT COUNT(*) FROM saas_tenant WHERE status = 'active' AND expires_at IS NOT NULL AND expires_at <= NOW()"
             ),
+            // 已过服务期但仍在宽限期（Billing::GRACE_DAYS = 30）内的家数；超宽限的 = expired - in_grace
+            'in_grace'      => (int) ControlDb::val(
+                "SELECT COUNT(*) FROM saas_tenant WHERE status = 'active' AND expires_at IS NOT NULL
+                   AND expires_at <= NOW() AND expires_at > DATE_SUB(NOW(), INTERVAL 30 DAY)"
+            ),
             'unpaid_count'  => (int) ControlDb::val("SELECT COUNT(*) FROM saas_bill WHERE status = 'unpaid'"),
             'unpaid_amount' => (string) (ControlDb::val("SELECT COALESCE(SUM(amount), 0) FROM saas_bill WHERE status = 'unpaid'") ?? '0'),
             'paid_month'    => (string) (ControlDb::val(
