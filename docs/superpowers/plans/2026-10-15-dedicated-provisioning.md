@@ -767,7 +767,7 @@ rm -rf /data/qingguan/app/uploads/t<该租户id>
 - [ ] **步骤 8.1：全量回归**
 
 ```bash
-php83 tests/run.php 2>&1 | tail -1        # 预期 66 passed, 0 failed
+php83 tests/run.php 2>&1 | tail -1        # 预期 68 passed, 0 failed
 php83 tests/guard_no_raw_business_sql.php | tail -1   # guard ok
 ```
 
