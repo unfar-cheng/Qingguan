@@ -83,14 +83,14 @@ t('Billing::state：边界（恰好到期日、宽限最后一天）', function 
 });
 
 t('Billing::nextExpiry：三分支重算', function () {
-    // 分支1：未到期续费 → 旧到期日 + 周期
-    assert_eq('2027-01-15 00:00:00', Billing::nextExpiry('year', '2026-01-15 00:00:00', T0));
-    // 分支2：宽限内（含试用，expires_at=审核日）→ 旧到期日 + 周期（试用期白送）
-    assert_eq('2026-02-15 00:00:00', Billing::nextExpiry('month', '2026-01-15 00:00:00', T0));
-    assert_eq('2027-02-15 00:00:00', Billing::nextExpiry('year', '2026-02-15 00:00:00', T0));
-    // 分支3：已超宽限 → 付款日起算
+    // 分支1：未到期续费 → 旧到期日 + 周期（到期日在 T0 之后才算「未到期」）
+    assert_eq('2028-01-15 00:00:00', Billing::nextExpiry('year', '2027-01-15 00:00:00', T0));
+    // 分支2：宽限内（含试用，expires_at=审核日）→ 旧到期日 + 周期（T0-11 天，仍在 30 天宽限内；试用期白送）
+    assert_eq('2026-11-05 00:00:00', Billing::nextExpiry('month', '2026-10-05 00:00:00', T0));
+    assert_eq('2027-10-05 00:00:00', Billing::nextExpiry('year', '2026-10-05 00:00:00', T0));
+    // 分支3：已超宽限 → 付款日起算（now+周期，月付落在 T0 的下个月）
     $r = Billing::nextExpiry('month', '2026-08-01 00:00:00', T0);
-    assert_true(strpos($r, date('Y-m', T0 + 1 * 86400)) === 0 || strpos($r, date('Y-m', T0)) === 0, '超宽限按 now 起算：' . $r);
+    assert_true(strpos($r, date('Y-m', T0 + 16 * 86400)) === 0, '超宽限按 now+周期起算：' . $r);
     // NULL 到期（不应发生，兜底）→ now 起算
     assert_true(Billing::nextExpiry('month', null, T0) !== '');
     // 非法周期
@@ -110,7 +110,7 @@ namespace QG;
 
 /**
  * 服务期计算（纯函数，不碰 DB）。
- * 状态机与三分支重算规则见 specs/2026-10-16-billing-expiry-design.md §3。
+ * 状态机与三分支重算规则见 docs/superpowers/specs/2026-10-16-billing-expiry-design.md §3。
  * 约定：试用 = 「无 paid 账单 + expires_at=审核日」的宽限态，不落状态列。
  */
 class Billing
@@ -154,7 +154,7 @@ class Billing
 }
 ```
 
-- [ ] **步骤 1.4：运行验证通过** —— `php83 tests/run.php 2>&1 | tail -1`，预期 **75 passed, 0 failed**（69+3 用例，7 个断言组）。
+- [ ] **步骤 1.4：运行验证通过** —— `php83 tests/run.php 2>&1 | tail -1`，预期 **72 passed, 0 failed**（69+3，run.php 按 t() 组计数）。
 
 - [ ] **步骤 1.5：Commit**
 
@@ -347,7 +347,7 @@ git commit -m "feat: 账单中心菜单——存量租户幂等补插迁移 + sc
 - [ ] **步骤 4.4：验证 + Commit**
 
 ```bash
-php83 tests/run.php 2>&1 | tail -1        # 预期 75 passed（注册既有用例不传 cycle 会红——见步骤 4.5）
+php83 tests/run.php 2>&1 | tail -1        # 预期 72 passed（注册既有用例不传 cycle 会红——见步骤 4.5）
 ```
 
 既有注册用例没传 bill_cycle → 会 FAIL，属预期；**在 `tests/test_register.php` 与 `tests/test_platform_api.php` 的注册 payload 里各加 `'bill_cycle' => 'year'`**，再补一条断言（test_register.php 注册成功用例内）：
@@ -361,7 +361,7 @@ php83 tests/run.php 2>&1 | tail -1        # 预期 75 passed（注册既有用�
 （`$tid` 变量名以该文件既有代码为准；若注册用例用完即删租户，断言放在删除之前，并把 `saas_bill` 的清理加进其 finally/清理段：`ControlDb::exec('DELETE FROM saas_bill WHERE tenant_id = ?', [$tid]);`）
 
 ```bash
-php83 tests/run.php 2>&1 | tail -1        # 预期 75 passed, 0 failed
+php83 tests/run.php 2>&1 | tail -1        # 预期 72 passed, 0 failed
 git add api/src/controllers/TenantController.php api/src/controllers/PlatformController.php register.html tests/test_register.php tests/test_platform_api.php
 git commit -m "feat: 注册选付费周期并生成第一张账单，驳回自动作废待付账单"
 ```
@@ -427,7 +427,7 @@ dedicated 分支同款（保留其 `db_name = ?` 列）。
 - [ ] **步骤 5.5：验证 + Commit**
 
 ```bash
-php83 tests/run.php 2>&1 | tail -1 && php83 tests/guard_no_raw_business_sql.php | tail -1   # 75 passed + guard ok
+php83 tests/run.php 2>&1 | tail -1 && php83 tests/guard_no_raw_business_sql.php | tail -1   # 72 passed + guard ok
 git add api/src/TenantProvisioner.php api/src/controllers/AuthController.php api/src/Auth.php
 git commit -m "feat: 审核通过即试用开始，超宽限登录/会话拦截，/auth/me 带服务期状态"
 ```
@@ -570,7 +570,7 @@ dev 与 breeder 的真实 `config.php` 用程序化插入补同一键（先 `cp 
 - [ ] **步骤 6.6：验证 + Commit**
 
 ```bash
-php83 tests/run.php 2>&1 | tail -1 && php83 tests/guard_no_raw_business_sql.php | tail -1   # 75 passed + guard ok
+php83 tests/run.php 2>&1 | tail -1 && php83 tests/guard_no_raw_business_sql.php | tail -1   # 72 passed + guard ok
 git add api/src/ControlDb.php api/src/repos/BillRepo.php api/src/controllers/BillController.php api/index.php api/config/config.sample.php
 git commit -m "feat: 租户账单接口（/api/bills 查看+自助续费）与 ControlDb 事务"
 ```
@@ -687,7 +687,7 @@ git commit -m "feat: 租户账单接口（/api/bills 查看+自助续费）与 C
 - [ ] **步骤 7.4：验证 + Commit**
 
 ```bash
-php83 tests/run.php 2>&1 | tail -1 && php83 tests/guard_no_raw_business_sql.php | tail -1   # 75 passed + guard ok
+php83 tests/run.php 2>&1 | tail -1 && php83 tests/guard_no_raw_business_sql.php | tail -1   # 72 passed + guard ok
 git add api/src/controllers/PlatformController.php
 git commit -m "feat: 平台账单接口（列表/确认收款/作废）与租户列表有效期"
 ```
@@ -1047,7 +1047,7 @@ ssh breeder.sflswall.com.cn 'sudo mysql -u root qingguan_control < /tmp/migratio
 - **规格覆盖度**：§2 数据模型 → 任务 2/3；§3 状态机与三分支 → 任务 1；§4.1 注册/驳回 → 任务 4；§4.2 审核联动 → 任务 5；§4.3 租户侧（条幅/账单中心/接口）→ 任务 6/8；§4.4 平台侧 → 任务 7/8；§4.5 鉴权链 → 任务 5；§5 测试 → 任务 1/9；§6 风险（控制面迁移双跑、菜单幂等键 uk_tenant_code 实证存在、时区用 DB/app 一致时间、试用=宽限实现耦合说明）→ 任务 2/3/9 步骤与代码注释。
 - **占位符**：无。任务 9.1 的用例骨架给了完整结构，实现者按既有惯例补工具函数（计划明示参照文件）。
 - **类型一致性**：`Billing::state(?string,bool,int=null):array{state,days_left,trial}` 与 `nextExpiry(string,?string,int):string` 在任务 5/7 调用一致；`BillRepo::forTenant/hasPaid/create/findUnpaid` 在任务 6/7 一致；`saas_bill` 列名与任务 2 DDL 一致。
-- **基线计数**：写死「75 passed」为任务 1 完成后值（69+3+3），任务 4/9 新增用例后以实跑为准并同步 AGENTS.md（步骤 9.2）。
+- **基线计数**：写死「72 passed」为任务 1 完成后值（69+3，run.php 按 t() 组计数），任务 4/9 新增用例后以实跑为准并同步 AGENTS.md（步骤 9.2）。
 
 ## 执行记录
 
