@@ -3,12 +3,14 @@ namespace QG\controllers;
 
 use QG\App;
 use QG\Auth;
+use QG\Billing;
 use QG\ControlDb;
 use QG\RateLimit;
 use QG\Req;
 use QG\Response;
 use QG\Router;
 use QG\TenantProvisioner;
+use QG\repos\BillRepo;
 
 /** 平台侧：超管登录 + 租户审核。全部路由在 /api/platform/* 下，令牌 scope=platform。 */
 class PlatformController
@@ -20,6 +22,9 @@ class PlatformController
         $r->get('/platform/me', [self::class, 'me']);
         $r->get('/platform/tenants', [self::class, 'tenants']);
         $r->get('/platform/audits', [self::class, 'audits']);
+        $r->get('/platform/bills', [self::class, 'bills']);
+        $r->post('/platform/bills/{id}/confirm', [self::class, 'confirmBill']);
+        $r->post('/platform/bills/{id}/void', [self::class, 'voidBill']);
         $r->post('/platform/tenants/{id}/approve', [self::class, 'approve']);
         $r->post('/platform/tenants/{id}/reject', [self::class, 'reject']);
         $r->post('/platform/tenants/{id}/suspend', [self::class, 'suspend']);
@@ -75,7 +80,7 @@ class PlatformController
         $total = (int) ControlDb::val("SELECT COUNT(*) FROM saas_tenant t WHERE {$where}", $bind);
         $rows  = ControlDb::all(
             "SELECT t.id, t.code, t.name, t.mode, t.status, t.contact_name, t.contact_phone, t.contact_email,
-                    t.admin_username, t.reject_reason, t.applied_at, t.reviewed_at, t.logo_url, t.db_name,
+                    t.admin_username, t.reject_reason, t.applied_at, t.reviewed_at, t.logo_url, t.db_name, t.expires_at,
                     p.name AS plan_name
                FROM saas_tenant t LEFT JOIN saas_plan p ON p.id = t.plan_id
               WHERE {$where} ORDER BY (t.status = 'pending') DESC, t.id DESC LIMIT {$size} OFFSET {$offset}",
@@ -121,6 +126,93 @@ class PlatformController
             $bind
         );
         Response::page($rows, $total, $page, $size);
+    }
+
+    /** 全局账单列表：可按状态与租户代码筛选；未知租户代码恒空集（与 audits 同语义）。 */
+    public static function bills(): void
+    {
+        Auth::requirePlatform();
+        [$page, $size, $offset] = Req::page();
+        $where = '1=1';
+        $bind  = [];
+        $status = Req::str('status');
+        if (in_array($status, ['unpaid', 'paid', 'void'], true)) {
+            $where .= ' AND b.status = ?';
+            $bind[] = $status;
+        }
+        $code = strtolower(trim(Req::str('tenant')));
+        if ($code !== '') {
+            $tid = ControlDb::val('SELECT id FROM saas_tenant WHERE code = ? LIMIT 1', [$code]);
+            if (!$tid) {
+                Response::page([], 0, $page, $size);
+            }
+            $where .= ' AND b.tenant_id = ?';
+            $bind[] = (int) $tid;
+        }
+        $total = (int) ControlDb::val("SELECT COUNT(*) FROM saas_bill b WHERE {$where}", $bind);
+        $rows  = ControlDb::all(
+            "SELECT b.id, b.tenant_id, t.code AS tenant_code, t.name AS tenant_name, b.cycle, b.amount,
+                    b.status, b.created_at, b.paid_at, b.void_reason, b.remark
+               FROM saas_bill b LEFT JOIN saas_tenant t ON t.id = b.tenant_id
+              WHERE {$where} ORDER BY b.id DESC LIMIT {$size} OFFSET {$offset}",
+            $bind
+        );
+        Response::page($rows, $total, $page, $size);
+    }
+
+    /** 确认收款：账单 paid（状态守卫）+ 服务期重算（Billing 三分支），两写原子。 */
+    public static function confirmBill(array $p): void
+    {
+        $admin = Auth::requirePlatform();
+        $bill = BillRepo::findUnpaid((int) ($p['id'] ?? 0));
+        if (!$bill) {
+            Response::fail('账单不存在或不是待支付状态');
+        }
+        $t = ControlDb::one('SELECT * FROM saas_tenant WHERE id = ? LIMIT 1', [(int) $bill['tenant_id']]);
+        if (!$t || $t['status'] !== 'active') {
+            Response::fail('租户未开通，暂不能确认收款');
+        }
+        $ref = Req::str('ref');
+        $newExp = '';
+        ControlDb::begin();
+        try {
+            $n = ControlDb::exec(
+                "UPDATE saas_bill SET status = 'paid', paid_at = NOW(), paid_channel = 'offline', paid_ref = ?, confirmed_by = ? WHERE id = ? AND status = 'unpaid'",
+                [$ref, (int) $admin['id'], (int) $bill['id']]
+            );
+            if ($n === 0) {
+                throw new \RuntimeException('账单状态已变化，请刷新后重试');
+            }
+            $newExp = Billing::nextExpiry($bill['cycle'], $t['expires_at'], time());
+            ControlDb::exec('UPDATE saas_tenant SET expires_at = ? WHERE id = ?', [$newExp, (int) $t['id']]);
+            ControlDb::commit();
+        } catch (\Throwable $e) {
+            ControlDb::rollback();
+            Response::fail('确认收款失败：' . $e->getMessage());
+        }
+        self::audit((int) $admin['id'], 'bill_paid', (int) $bill['tenant_id'],
+            '账单 #' . $bill['id'] . '（' . ($bill['cycle'] === 'month' ? '月付' : '年付') . ' ¥' . $bill['amount'] . '）确认收款，服务期至 ' . $newExp);
+        Response::ok(['expires_at' => $newExp], '已确认收款');
+    }
+
+    public static function voidBill(array $p): void
+    {
+        $admin = Auth::requirePlatform();
+        $reason = Req::require_('reason', '作废原因');
+        if (mb_strlen($reason) > 200) {
+            Response::fail('作废原因不能超过 200 字');
+        }
+        $n = ControlDb::exec(
+            "UPDATE saas_bill SET status = 'void', void_reason = ? WHERE id = ? AND status = 'unpaid'",
+            [$reason, (int) ($p['id'] ?? 0)]
+        );
+        if ($n === 0) {
+            Response::fail('账单不存在或不是待支付状态');
+        }
+        $bill = ControlDb::one('SELECT tenant_id, cycle, amount FROM saas_bill WHERE id = ? LIMIT 1', [(int) ($p['id'] ?? 0)]);
+        self::audit((int) $admin['id'], 'bill_void', (int) $bill['tenant_id'],
+            '账单 #' . ($p['id'] ?? 0) . '（' . ($bill['cycle'] === 'month' ? '月付' : '年付') . ' ¥' . $bill['amount'] . '）作废：' . $reason);
+        Response::ok(null, '已作废');
     }
 
     public static function approve(array $p): void
