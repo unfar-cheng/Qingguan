@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS `saas_tenant` (
   `admin_username`      VARCHAR(50)  NOT NULL DEFAULT '',
   `admin_password_hash` VARCHAR(255) NOT NULL DEFAULT '',
   `reject_reason`       VARCHAR(255) NOT NULL DEFAULT '',
+  `bill_cycle`          ENUM('month','year') NOT NULL DEFAULT 'year' COMMENT '注册申请的付费周期意愿',
+  `expires_at`          DATETIME NULL COMMENT '服务期到期日；NULL=不参与到期逻辑',
   `applied_at`          DATETIME NULL,
   `reviewed_at`         DATETIME NULL,
   `reviewed_by`         INT UNSIGNED NULL,
@@ -74,3 +76,20 @@ CREATE TABLE IF NOT EXISTS `saas_audit` (
 INSERT INTO `saas_plan` (`code`,`name`,`mode`,`price_month`,`price_year`,`max_users`,`max_orders`,`remark`,`status`,`sort`) VALUES
   ('basic',    '标准版（共享）', 'shared',    600.00,  6000.00,  20,  5000, '数据与其他租户共享一套库，逻辑隔离', 1, 1),
   ('isolated', '隔离版（独享）', 'dedicated', 1500.00, 15000.00, 50, 50000, '独立数据库，物理隔离（二期开通）', 1, 2);
+
+CREATE TABLE IF NOT EXISTS `saas_bill` (
+  `id`           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id`    INT UNSIGNED NOT NULL,
+  `cycle`        ENUM('month','year') NOT NULL COMMENT '服务周期',
+  `amount`       DECIMAL(10,2) NOT NULL COMMENT '生成时快照套餐价',
+  `status`       ENUM('unpaid','paid','void') NOT NULL DEFAULT 'unpaid',
+  `created_at`   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `paid_at`      DATETIME NULL,
+  `paid_channel` VARCHAR(30) NOT NULL DEFAULT '' COMMENT '二期在线支付前恒 offline',
+  `paid_ref`     VARCHAR(100) NOT NULL DEFAULT '' COMMENT '支付流水号/转账备注',
+  `confirmed_by` INT UNSIGNED NULL COMMENT '确认收款的平台账号',
+  `void_reason`  VARCHAR(200) NOT NULL DEFAULT '',
+  `remark`       VARCHAR(200) NOT NULL DEFAULT '',
+  PRIMARY KEY (`id`),
+  KEY `idx_tenant` (`tenant_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='账单';
