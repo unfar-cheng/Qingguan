@@ -104,12 +104,20 @@ t('tenants 列表不泄露敏感字段', function () {
     if (!qg_site_up()) { return; }
     $jar = platform_jar();
     if (!$jar) { echo "      平台超管不可用，跳过\n"; return; }
-    $r = qg_curl('/api/platform/tenants', ['-b', $jar]);
-    assert_contains($r, '"code":0', '平台列表应可访问：' . $r);
-    assert_true(strpos($r, 'password_hash') === false, '列表不得出现 password_hash：' . $r);
-    // db_name 自专用档方案（spec 2026-10-15 前端节：dedicated 行展示库名）起是平台列表的合法字段，
-    // 旧断言「不得出现 db_name」过时，改为正向回归：SELECT 必须带出 db_name。
-    assert_true(strpos($r, '"db_name":') !== false, '列表应带出 db_name（专用档展示依赖）：' . $r);
+    $tid = 999903;
+    try {
+        ControlDb::exec('DELETE FROM saas_tenant WHERE id = ?', [$tid]);
+        ControlDb::exec("INSERT INTO saas_tenant (id, code, name, mode, status, db_name, admin_username, applied_at) VALUES (?, 'sm999903', '库名展示冒烟', 'dedicated', 'active', 'qingguan_t_sm999903', 'boss', NOW())", [$tid]);
+        $r = qg_curl('/api/platform/tenants', ['-b', $jar]);
+        assert_contains($r, '"code":0', '平台列表应可访问：' . $r);
+        assert_true(strpos($r, 'password_hash') === false, '列表不得出现 password_hash：' . $r);
+        // db_name 自专用档方案（spec 2026-10-15 前端节：dedicated 行展示库名）起是平台列表的合法字段，
+        // 旧断言「不得出现 db_name」过时；自播种合成专用档租户断言精确值，不依赖库里恰好有专用档行。
+        assert_true(strpos($r, '"db_name":"qingguan_t_sm999903"') !== false, '列表应带出专用档 db_name 精确值：' . $r);
+    } finally {
+        ControlDb::exec('DELETE FROM saas_tenant WHERE id = ?', [$tid]);
+        ControlDb::exec("DELETE FROM saas_audit WHERE target_type = 'tenant' AND target_id = ?", [$tid]);
+    }
     @unlink($jar);
 });
 
