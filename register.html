@@ -8,7 +8,10 @@
 <link rel="stylesheet" href="/assets/vendor/element-plus.css">
 <link rel="stylesheet" href="/assets/css/app.css">
 <style>
-  .reg-card { max-width: 640px; margin: 40px auto; background: #fff; border-radius: 14px; padding: 32px 36px; }
+  /* width:100% 必需：登录容器是 flex，只给 max-width 时卡片宽度会随内容（如校验文案）伸缩，
+     出现「填完企业名跳到租户代码时整页突然变宽」的抖动 */
+  .reg-card { width: 100%; max-width: 640px; margin: 40px auto; background: #fff; border-radius: 14px; padding: 32px 36px; }
+  .reg-card .el-form-item__content { min-width: 0; }
   .plan-item { border: 1px solid #dcdfe6; border-radius: 10px; padding: 14px 16px; margin-bottom: 10px; cursor: pointer; }
   .plan-item.active { border-color: var(--qg-blue); background: #f0f6ff; }
   .plan-price { color: #e6a23c; font-weight: 600; }
