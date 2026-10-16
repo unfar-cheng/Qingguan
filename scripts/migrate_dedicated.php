@@ -58,7 +58,13 @@ foreach ($rows as $r) {
     try {
         $pdo->exec("USE `{$db}`");
         foreach (ProvisionRepo::splitStatements($sql) as $stmt) {
-            $pdo->exec($stmt);
+            // 迁移的幂等分支会 EXECUTE 出结果集（如 SELECT 1 空操作），必须取尽，
+            // 否则下一句报 2014 "Cannot execute queries while other unbuffered queries are active"
+            $st = $pdo->query($stmt);
+            do {
+                $st->fetchAll();
+            } while ($st->nextRowset());
+            $st->closeCursor();
         }
         echo "OK   {$r['db_name']}\n";
     } catch (Throwable $e) {
