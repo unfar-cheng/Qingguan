@@ -341,7 +341,7 @@ git commit -m "feat: 租户改密清零强改标记（登录与 /auth/me 自动�
 
 **文件：** 修改 `api/src/controllers/PlatformController.php`
 
-- [ ] **步骤 5.1：路由** —— 现有路由后追加（use 列表加 `QG\Db;`、`QG\Tenant;`、`QG\TempPassword;`）：
+- [x] **步骤 5.1：路由** —— 现有路由后追加（use 列表加 `QG\Db;`、`QG\Tenant;`、`QG\TempPassword;`）：
 
 ```php
         $r->post('/platform/tenants/{id}/reset-admin-password', [self::class, 'resetAdminPassword']);
@@ -353,7 +353,7 @@ git commit -m "feat: 租户改密清零强改标记（登录与 /auth/me 自动�
         $r->post('/platform/password', [self::class, 'platformPassword']);
 ```
 
-- [ ] **步骤 5.2：七个方法** —— `voidBill()` 后追加（全文照抄）：
+- [x] **步骤 5.2：七个方法** —— `voidBill()` 后追加（全文照抄）：
 
 ```php
     /** 平台代重置租户管理员密码：临时密码一次性返回，管理员首登强制改密。 */
@@ -502,7 +502,7 @@ git commit -m "feat: 租户改密清零强改标记（登录与 /auth/me 自动�
     }
 ```
 
-- [ ] **步骤 5.3：验证 + Commit**
+- [x] **步骤 5.3：验证 + Commit**
 
 ```bash
 php83 tests/run.php 2>&1 | tail -1 && php83 tests/guard_no_raw_business_sql.php | tail -1   # 80 passed + guard ok
@@ -517,7 +517,7 @@ git commit -m "feat: 平台代重置租户管理员密码与平台账号管理�
 
 **文件：** 修改 `index.html`、`platform.html`（先各读全文）
 
-- [ ] **步骤 6.1：index.html 强改对话框** —— 三处：
+- [x] **步骤 6.1：index.html 强改对话框** —— 三处：
   ① data 加 `pwdForce: false,`（`pwdVisible` 旁）；
   ② created 的 `/auth/me` 成功回调（`self.user = u;` 之后）加：
 
@@ -538,7 +538,7 @@ git commit -m "feat: 平台代重置租户管理员密码与平台账号管理�
 
 footer 的取消按钮加 `v-if="!pwdForce"`；savePwd 成功回调不变（toast 后跳登录页，用新密码重登即正常进入）。
 
-- [ ] **步骤 6.2：platform.html 强改 + 修改密码入口** ——
+- [x] **步骤 6.2：platform.html 强改 + 修改密码入口** ——
   ① data 加 `pwdVisible: false, pwdForce: false, saving: false, pwdForm: { old_password: '', new_password: '', confirm: '' }`；
   ② created 的 `/platform/me` 成功回调改为：
 
@@ -592,7 +592,7 @@ footer 的取消按钮加 `v-if="!pwdForce"`；savePwd 成功回调不变（toas
   </el-dialog>
 ```
 
-- [ ] **步骤 6.3：第四视图「账号」** ——
+- [x] **步骤 6.3：第四视图「账号」** ——
   ① 视图组加 `<el-radio-button value="accounts">账号</el-radio-button>`；
   ② 账单卡片 `v-else-if="view === 'bills'"` 之后加：
 
@@ -700,7 +700,7 @@ footer 的取消按钮加 `v-if="!pwdForce"`；savePwd 成功回调不变（toas
       },
 ```
 
-- [ ] **步骤 6.4：收款信息维护卡（账单视图）** —— 账单卡片的状态筛选条之前加：
+- [x] **步骤 6.4：收款信息维护卡（账单视图）** —— 账单卡片的状态筛选条之前加：
 
 ```html
     <div style="margin-bottom:12px">
@@ -729,7 +729,7 @@ data 加 `noticeDraft: '', noticeSaving: false`；`onView` 的 bills 分支加 `
       },
 ```
 
-- [ ] **步骤 6.5：租户行「重置密码」按钮** —— 租户表操作列（active 分支的「停用」按钮后）加：
+- [x] **步骤 6.5：租户行「重置密码」按钮** —— 租户表操作列（active 分支的「停用」按钮后）加：
 
 ```html
             <el-button size="small" plain @click="resetPwd(s.row)">重置密码</el-button>
@@ -748,7 +748,7 @@ data 加 `noticeDraft: '', noticeSaving: false`；`onView` 的 bills 分支加 `
       },
 ```
 
-- [ ] **步骤 6.6：验证 + Commit**
+- [x] **步骤 6.6：验证 + Commit**
 
 ```bash
 python3 - <<'EOF'
@@ -772,7 +772,7 @@ git commit -m "feat: 强改密码对话框、平台账号视图、收款信息�
 
 **文件：** 创建 `tests/test_account_http.php`；修改 `AGENTS.md`、`version.json`
 
-- [ ] **步骤 7.1：五组用例** —— 创建 `tests/test_account_http.php`（骨架照 test_billing_http：platform jar 静态缓存只登录一次；合成租户 920xxx 段 + 数据面播种管理员照 test_provision 惯例；finally 清理含 sys_user 的 must_change 清理无需特殊处理，删除行即可）：
+- [x] **步骤 7.1：五组用例** —— 创建 `tests/test_account_http.php`（骨架照 test_billing_http：platform jar 静态缓存只登录一次；合成租户 920xxx 段 + 数据面播种管理员照 test_provision 惯例；finally 清理含 sys_user 的 must_change 清理无需特殊处理，删除行即可）：
 
 ```php
 <?php
@@ -797,9 +797,9 @@ require_once __DIR__ . '/bootstrap.php';
 
 实现注意：平台登录响应 data 含 `must_change_password`（login 自动带出）；`/platform/me` 同样；用例间共享 platform jar（静态缓存）避免限流；所有平台账号造数走 API（顺带测 create），清理只删测试新建的账号（`DELETE FROM saas_platform_user WHERE username LIKE 'accpt%'`），**platform 账号（id=1）绝对不动**（步骤 3 的直插法测试后必须恢复 status=1）。
 
-- [ ] **步骤 7.2：回归 + AGENTS.md** —— `php83 tests/run.php 2>&1 | tail -1`（记录最终数字，预期 80+5=85 左右）；AGENTS.md：三处基线计数（73/78 → 实际值）、§3 代码地图加 `TempPassword.php` 与 `SettingRepo`、§6 补「账号与密码」段（临时密码一次性展示、must_change_password 双表标记、保护规则三条）、§9 坑补「强改弹窗为锁死风险单点，改其交互必须过 test_account_http」。
+- [x] **步骤 7.2：回归 + AGENTS.md** —— `php83 tests/run.php 2>&1 | tail -1`（记录最终数字，预期 80+5=85 左右）；AGENTS.md：三处基线计数（73/78 → 实际值）、§3 代码地图加 `TempPassword.php` 与 `SettingRepo`、§6 补「账号与密码」段（临时密码一次性展示、must_change_password 双表标记、保护规则三条）、§9 坑补「强改弹窗为锁死风险单点，改其交互必须过 test_account_http」。
 
-- [ ] **步骤 7.3：Commit + version bump**
+- [x] **步骤 7.3：Commit + version bump**
 
 ```bash
 git add tests/test_account_http.php AGENTS.md && git commit -m "test: 账号与密码管理全链路用例 + AGENTS.md 口径"
@@ -851,3 +851,11 @@ ssh breeder.sflswall.com.cn 'cd /opt/qingguan && php scripts/migrate_dedicated.p
 - **任务 4**（`bbdbdcb`）：`UserRepo::clearMustChangePassword`（带 `tenant_id` 隔离，比计划原文更严）+ `AuthController::password` 清零。实呼确认 `must_change_password` 已随租户登录响应、`/auth/me`、`/platform/me` 自动带出（值为 int `0/1`，前端按真值判断即可）。
 - 门禁：各提交前后 `php83 tests/run.php` = **80 passed, 0 failed**、`guard ok`。
 - 备注：dev 站点共享限流桶（platform-login 10 次/10 分钟）在背靠背连跑测试时会打出 HTTP 级用例的偶发失败，非回归。
+
+### 2026-10-16 · 任务 5–7
+
+- **任务 5**（`fd48be8`）：平台代重置 + 平台账号六接口 + 平台改密。**与计划的一处必要偏离**：`resetAdminPassword` 原计划在 controller 里直调 `Db::exec()`，会被 `guard_no_raw_business_sql.php` 拦下（实测红）；改为新增 `UserRepo::forceResetByUsername()`（带 `tenant_id` 隔离）后 guard 绿。实呼全链路验证：代重置 woniu 管理员 → 临时密码登录带 `must_change_password=1` → 租户内改密清零 → `/auth/me` 复查；账号新增/重复/非法名、停用自己拒绝、停用后旧会话 401、重复停用/启用文案、重置密码、审计动作齐备；测试后已复原 woniu 管理员哈希并删除合成平台账号。
+- **任务 6**（`b32831d`，审查通过）：前端四件（两页强改弹窗、平台第四视图「账号」、账单视图收款信息维护卡、租户行重置密码 + 操作列 300）。审查发现 5 条建议，已全部落地（`3793918`）：① `accountReset` 后刷新列表；② 账号列表标出「当前账号」并隐藏自己的「停用」；③ 临时密码弹窗加**复制按钮**（`navigator.clipboard` + `execCommand` 兜底）；④ 强改弹窗加**「退出登录」逃生口**（拿不到正确原密码时至少能离开，服务端标记仍在）；⑤ 收款信息加载失败时禁用保存按钮并报错，避免把已填的收款信息误清空。
+- **任务 7**（`840fd26` + `f71f1b7`）：`tests/test_account_http.php` 五组 HTTP 用例（合成 9200xx 段），跑前跑后清限流桶、测后清理数据；套件 **85 passed, 0 failed**、`guard ok`。变异验证（5 处临时变异 → 4 组 FAIL + 1 组单跑 FAIL）证明用例有效。AGENTS.md 同步（基线 85、目录地图、§6 账号段、§7 限流口径、§9 新增坑 11-14）。
+- **版本**：`37939183a6`（代码提交 `3793918`）→ `version.json` 已 bump（`f7e6706`）。
+- 浏览器验收（Playwright + 本地 Chromium，API 打桩）：两页强改弹窗标题/无关闭钮/Esc 不关/「退出登录」+「确定」；平台「账号」视图 1 个「当前账号」标记、自己无「停用」；`/platform/settings` 正常时保存可用、500 时保存禁用；临时密码弹窗复制按钮实测剪贴板内容一致，全程无 console/page error。
