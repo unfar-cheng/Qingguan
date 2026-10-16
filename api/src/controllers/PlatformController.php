@@ -25,6 +25,7 @@ class PlatformController
         $r->post('/platform/logout', [self::class, 'logout']);
         $r->get('/platform/me', [self::class, 'me']);
         $r->get('/platform/tenants', [self::class, 'tenants']);
+        $r->get('/platform/summary', [self::class, 'summary']);
         $r->get('/platform/audits', [self::class, 'audits']);
         $r->get('/platform/bills', [self::class, 'bills']);
         $r->post('/platform/bills/{id}/confirm', [self::class, 'confirmBill']);
@@ -84,11 +85,18 @@ class PlatformController
         Auth::requirePlatform();
         [$page, $size, $offset] = Req::page();
         $status = Req::str('status');
+        $kw = trim(Req::str('keyword'));
         $where = '1=1';
         $bind  = [];
         if (in_array($status, ['pending', 'active', 'rejected', 'suspended'], true)) {
             $where .= ' AND t.status = ?';
             $bind[] = $status;
+        }
+        if ($kw !== '') {
+            // 关键词：企业名 / 租户代码 / 联系人 / 手机 / 管理员账号（LIKE 走全表小扫描，租户表量级无压力）
+            $where .= ' AND (t.name LIKE ? OR t.code LIKE ? OR t.contact_name LIKE ? OR t.contact_phone LIKE ? OR t.admin_username LIKE ?)';
+            $like = '%' . str_replace(['%', '_'], ['\%', '\_'], $kw) . '%';
+            array_push($bind, $like, $like, $like, $like, $like);
         }
         $total = (int) ControlDb::val("SELECT COUNT(*) FROM saas_tenant t WHERE {$where}", $bind);
         $rows  = ControlDb::all(
@@ -100,6 +108,31 @@ class PlatformController
             $bind
         );
         Response::page($rows, $total, $page, $size);
+    }
+
+    /** 概览看板：一次拿齐首页数字卡与待办计数（口径与租户列表的有效期标签一致：30 天内到期 / 已过期待宽限） */
+    public static function summary(): void
+    {
+        Auth::requirePlatform();
+        Response::ok([
+            'pending'       => (int) ControlDb::val("SELECT COUNT(*) FROM saas_tenant WHERE status = 'pending'"),
+            'active'        => (int) ControlDb::val("SELECT COUNT(*) FROM saas_tenant WHERE status = 'active'"),
+            'dedicated'     => (int) ControlDb::val("SELECT COUNT(*) FROM saas_tenant WHERE status = 'active' AND mode = 'dedicated'"),
+            'expiring'      => (int) ControlDb::val(
+                "SELECT COUNT(*) FROM saas_tenant WHERE status = 'active' AND expires_at IS NOT NULL
+                   AND expires_at > NOW() AND expires_at <= DATE_ADD(NOW(), INTERVAL 30 DAY)"
+            ),
+            'expired'       => (int) ControlDb::val(
+                "SELECT COUNT(*) FROM saas_tenant WHERE status = 'active' AND expires_at IS NOT NULL AND expires_at <= NOW()"
+            ),
+            'unpaid_count'  => (int) ControlDb::val("SELECT COUNT(*) FROM saas_bill WHERE status = 'unpaid'"),
+            'unpaid_amount' => (string) (ControlDb::val("SELECT COALESCE(SUM(amount), 0) FROM saas_bill WHERE status = 'unpaid'") ?? '0'),
+            'paid_month'    => (string) (ControlDb::val(
+                "SELECT COALESCE(SUM(amount), 0) FROM saas_bill
+                  WHERE status = 'paid' AND paid_at IS NOT NULL AND paid_at >= DATE_FORMAT(NOW(), '%Y-%m-01')"
+            ) ?? '0'),
+            'accounts_on'   => (int) ControlDb::val('SELECT COUNT(*) FROM saas_platform_user WHERE status = 1'),
+        ]);
     }
 
     /** 审计动作白名单：筛选参数只接受这些值，其余静默忽略（不 500、不注入） */

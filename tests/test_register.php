@@ -37,24 +37,31 @@ t('注册校验：密码太短 / 联系方式全空 / 重复代码 被拒', func
 t('合法注册落 pending，且登录提示审核中', function () {
     if (!qg_site_up()) { return; }
     $code = 'reg' . substr(md5(uniqid()), 0, 8);
-    $r = qg_post_json('/api/tenant/register', [
-        'name' => '注册测试企业', 'code' => $code, 'contact_name' => '李四',
-        'contact_email' => 'test@example.com', 'admin_username' => 'boss',
-        'password' => 'RegPass123', 'plan_id' => 1, 'bill_cycle' => 'year',
-    ]);
-    assert_contains($r, '"code":0', '注册应成功：' . $r);
-    $row = ControlDb::one('SELECT * FROM saas_tenant WHERE code = ?', [$code]);
-    assert_eq('pending', $row['status'] ?? '', '应落 pending');
-    assert_true(password_verify('RegPass123', $row['admin_password_hash']), '密码应已哈希暂存');
-    $r = qg_post_json('/api/auth/login', ['tenant' => $code, 'username' => 'boss', 'password' => 'RegPass123']);
-    assert_contains($r, '审核中', 'pending 租户登录应提示审核中：' . $r);
-    $b = ControlDb::one('SELECT cycle, amount, status, remark FROM saas_bill WHERE tenant_id = ? ORDER BY id DESC LIMIT 1', [(int) $row['id']]);
-    assert_eq('year', $b['cycle'] ?? '', '注册应生成第一张账单');
-    assert_eq('unpaid', $b['status'] ?? '', '首张账单待支付');
-    // 清理
-    ControlDb::exec('DELETE FROM saas_bill WHERE tenant_id = ?', [(int) $row['id']]);
-    ControlDb::exec('DELETE FROM saas_audit WHERE target_type = ? AND target_id = ?', ['tenant', (int) $row['id']]);
-    ControlDb::exec('DELETE FROM saas_tenant WHERE id = ?', [(int) $row['id']]);
+    $tid = 0;
+    try {
+        $r = qg_post_json('/api/tenant/register', [
+            'name' => '注册测试企业', 'code' => $code, 'contact_name' => '李四',
+            'contact_email' => 'test@example.com', 'admin_username' => 'boss',
+            'password' => 'RegPass123', 'plan_id' => 1, 'bill_cycle' => 'year',
+        ]);
+        assert_contains($r, '"code":0', '注册应成功：' . $r);
+        $row = ControlDb::one('SELECT * FROM saas_tenant WHERE code = ?', [$code]);
+        $tid = (int) ($row['id'] ?? 0);
+        assert_eq('pending', $row['status'] ?? '', '应落 pending');
+        assert_true(password_verify('RegPass123', $row['admin_password_hash']), '密码应已哈希暂存');
+        $r = qg_post_json('/api/auth/login', ['tenant' => $code, 'username' => 'boss', 'password' => 'RegPass123']);
+        assert_contains($r, '审核中', 'pending 租户登录应提示审核中：' . $r);
+        $b = ControlDb::one('SELECT cycle, amount, status, remark FROM saas_bill WHERE tenant_id = ? ORDER BY id DESC LIMIT 1', [$tid]);
+        assert_eq('year', $b['cycle'] ?? '', '注册应生成第一张账单');
+        assert_eq('unpaid', $b['status'] ?? '', '首张账单待支付');
+    } finally {
+        // 清理必须放 finally：中途断言失败也不留 pending 租户（历史教训：跑失败就攒一条）
+        if ($tid > 0) {
+            ControlDb::exec('DELETE FROM saas_bill WHERE tenant_id = ?', [$tid]);
+            ControlDb::exec('DELETE FROM saas_audit WHERE target_type = ? AND target_id = ?', ['tenant', $tid]);
+            ControlDb::exec('DELETE FROM saas_tenant WHERE id = ?', [$tid]);
+        }
+    }
 });
 
 t('code-check 合法未占用代码 available=true', function () {
