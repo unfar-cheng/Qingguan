@@ -24,7 +24,7 @@
 - 本机 php-fpm：`/opt/remi/php83/root/usr/sbin/php-fpm -y /data/qingguan/app/ops/php83-fpm.conf`，监听 `127.0.0.1:9083`，以 `frappe` 用户跑（池配置故意省略 `user/group`，因为本机 `sudo` 只放行了 `dnf`/`mysql`/`cp` 与少数 `systemctl`）。PID/日志在 `/data/qingguan/var/`。重载：`kill -USR2 $(cat /data/qingguan/var/php83-fpm.pid)`。
 - 证书续期走 `frappe` 的 crontab（`23 4,16 * * *` certbot renew + reload httpd），另有 `@reboot` 拉起 php-fpm。
 - 日志：本机 `/var/log/httpd/qingguan-dev-{error,access}.log`；breeder `${APACHE_LOG_DIR}/qingguan-{error,access}.log`。
-- vhost 文件在 `ops/apache/`（本机 `qingguan-dev-*`，breeder `breeder/qingguan-*`，后者**尚未入库**）。
+- vhost 文件在 `ops/apache/`（本机 `qingguan-dev-*`，breeder `breeder/qingguan-*`，均已入库；breeder 那两个只含证书路径与 mod_rewrite 规则，不含口令）。
 - **迁移脚本必须 MySQL 8.0 与 MariaDB 10.5 两边都能跑**，别用 MySQL 8 专有语法。
 
 ## 2. 常用命令
