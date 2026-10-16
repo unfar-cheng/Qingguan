@@ -43,6 +43,12 @@ class PlatformController
         $r->post('/platform/accounts/{id}/enable', [self::class, 'accountEnable']);
         $r->post('/platform/accounts/{id}/reset-password', [self::class, 'accountReset']);
         $r->post('/platform/password', [self::class, 'platformPassword']);
+        $r->get('/platform/plans', [self::class, 'plans']);
+        $r->post('/platform/plans', [self::class, 'planSave']);
+        $r->put('/platform/plans/{id}', [self::class, 'planSave']);
+        $r->post('/platform/plans/{id}/disable', [self::class, 'planDisable']);
+        $r->post('/platform/plans/{id}/enable', [self::class, 'planEnable']);
+        $r->get('/platform/receivables', [self::class, 'receivables']);
     }
 
     public static function login(): void
@@ -143,7 +149,7 @@ class PlatformController
     /** 审计动作白名单：筛选参数只接受这些值，其余静默忽略（不 500、不注入） */
     private const AUDIT_ACTIONS = ['register', 'approve', 'reject', 'suspend', 'enable', 'login', 'bill_paid', 'bill_void',
         'provision_failed', 'admin_reset', 'account_create', 'account_disable', 'account_enable', 'account_reset',
-        'account_password', 'setting_update'];
+        'account_password', 'setting_update', 'plan_create', 'plan_update', 'plan_disable', 'plan_enable'];
 
     /** 审计日志（只读）：时间倒序，可按动作与目标租户（代码）筛选。platform_user_id 为空 = 申请人自注册。 */
     public static function audits(): void
@@ -205,7 +211,8 @@ class PlatformController
         $total = (int) ControlDb::val("SELECT COUNT(*) FROM saas_bill b WHERE {$where}", $bind);
         $rows  = ControlDb::all(
             "SELECT b.id, b.tenant_id, t.code AS tenant_code, t.name AS tenant_name, b.cycle, b.amount,
-                    b.status, b.created_at, b.paid_at, b.void_reason, b.remark
+                    b.status, b.created_at, b.paid_at, b.void_reason, b.remark,
+                    t.contact_name, t.contact_phone, t.contact_email, t.admin_username
                FROM saas_bill b LEFT JOIN saas_tenant t ON t.id = b.tenant_id
               WHERE {$where} ORDER BY b.id DESC LIMIT {$size} OFFSET {$offset}",
             $bind
@@ -411,6 +418,161 @@ class PlatformController
         );
         self::audit((int) $admin['id'], 'account_password', null, '平台账号 ' . $admin['username'] . ' 修改了密码');
         Response::ok(null, '密码已修改');
+    }
+
+    /* ---------- 套餐管理（注册页的服务端数据源：/plans/public 只列 status=1） ---------- */
+
+    public static function plans(): void
+    {
+        Auth::requirePlatform();
+        Response::ok(ControlDb::all(
+            "SELECT p.*, (SELECT COUNT(*) FROM saas_tenant t WHERE t.plan_id = p.id) AS tenant_count
+               FROM saas_plan p ORDER BY p.status DESC, p.sort, p.id"
+        ));
+    }
+
+    /** 新增（无 id）或修改（有 id）：字段与校验口径见 planPayload */
+    public static function planSave(array $p): void
+    {
+        $admin = Auth::requirePlatform();
+        $id = (int) ($p['id'] ?? 0);
+        $data = self::planPayload($id);
+        if ($id > 0) {
+            $old = ControlDb::one('SELECT * FROM saas_plan WHERE id = ? LIMIT 1', [$id]);
+            if (!$old) {
+                Response::fail('套餐不存在');
+            }
+            ControlDb::exec(
+                'UPDATE saas_plan SET code = ?, name = ?, mode = ?, price_month = ?, price_year = ?,
+                        max_users = ?, max_orders = ?, remark = ?, sort = ? WHERE id = ?',
+                [$data['code'], $data['name'], $data['mode'], $data['price_month'], $data['price_year'],
+                 $data['max_users'], $data['max_orders'], $data['remark'], $data['sort'], $id]
+            );
+            self::audit((int) $admin['id'], 'plan_update', null, '修改套餐 ' . $data['code'] . '（' . $data['name'] . '）');
+            Response::ok(['id' => $id], '套餐已保存');
+        }
+        try {
+            $newId = ControlDb::insert('saas_plan', $data + ['status' => 1]);
+        } catch (\PDOException $e) {
+            if ($e->getCode() === '23000') { Response::fail('套餐代码已存在'); }
+            throw $e;
+        }
+        self::audit((int) $admin['id'], 'plan_create', null, '新增套餐 ' . $data['code'] . '（' . $data['name'] . '）');
+        Response::ok(['id' => $newId], '套餐已新增');
+    }
+
+    /** 失效：注册页不再列出；已开通租户不受影响（它们通过 plan_id 关联，仍显示原套餐名） */
+    public static function planDisable(array $p): void
+    {
+        $admin = Auth::requirePlatform();
+        $id = (int) ($p['id'] ?? 0);
+        $plan = ControlDb::one('SELECT * FROM saas_plan WHERE id = ? LIMIT 1', [$id]);
+        if (!$plan) {
+            Response::fail('套餐不存在');
+        }
+        ControlDb::begin();
+        try {
+            $n = ControlDb::exec('UPDATE saas_plan SET status = 0 WHERE id = ? AND status = 1', [$id]);
+            if ($n === 0) {
+                throw new \RuntimeException('套餐状态已变化，请刷新后重试');
+            }
+            if ((int) ControlDb::val('SELECT COUNT(*) FROM saas_plan WHERE status = 1') === 0) {
+                throw new \RuntimeException('至少保留一个启用中的套餐，否则注册页将无法选择');
+            }
+            ControlDb::commit();
+        } catch (\Throwable $e) {
+            ControlDb::rollback();
+            Response::fail($e->getMessage());
+        }
+        self::audit((int) $admin['id'], 'plan_disable', null, '失效套餐 ' . $plan['code'] . '（' . $plan['name'] . '）');
+        Response::ok(null, '已失效，注册页不再展示该套餐');
+    }
+
+    public static function planEnable(array $p): void
+    {
+        $admin = Auth::requirePlatform();
+        $id = (int) ($p['id'] ?? 0);
+        $plan = ControlDb::one('SELECT * FROM saas_plan WHERE id = ? LIMIT 1', [$id]);
+        if (!$plan) {
+            Response::fail('套餐不存在');
+        }
+        if ((int) $plan['status'] === 1) {
+            Response::ok(null, '该套餐已是启用状态（幂等）');
+        }
+        ControlDb::exec('UPDATE saas_plan SET status = 1 WHERE id = ?', [$id]);
+        self::audit((int) $admin['id'], 'plan_enable', null, '启用套餐 ' . $plan['code'] . '（' . $plan['name'] . '）');
+        Response::ok(null, '已启用，注册页可重新选择');
+    }
+
+    /** 表单校验 + 归一化；$id > 0 时排除自身的 code 唯一性冲突。失败即 Response::fail（终止） */
+    private static function planPayload(int $id): array
+    {
+        $code = strtolower(trim(Req::str('code')));
+        if (!preg_match('/^[a-z0-9][a-z0-9-]{1,29}$/', $code)) {
+            Response::fail('套餐代码需为 2-30 位小写字母、数字或短横线');
+        }
+        $dup = $id > 0
+            ? ControlDb::val('SELECT COUNT(*) FROM saas_plan WHERE code = ? AND id <> ?', [$code, $id])
+            : ControlDb::val('SELECT COUNT(*) FROM saas_plan WHERE code = ?', [$code]);
+        if ((int) $dup > 0) {
+            Response::fail('套餐代码已存在');
+        }
+        $name = Req::require_('name', '套餐名称');
+        if (mb_strlen($name) > 100) {
+            Response::fail('套餐名称不能超过 100 字');
+        }
+        $mode = Req::str('mode');
+        if (!in_array($mode, ['shared', 'dedicated'], true)) {
+            Response::fail('隔离档只能是共享库或独享库');
+        }
+        $remark = trim(Req::str('remark'));
+        if (mb_strlen($remark) > 255) {
+            Response::fail('说明不能超过 255 字');
+        }
+        return [
+            'code'        => $code,
+            'name'        => $name,
+            'mode'        => $mode,
+            'price_month' => self::planPrice('price_month', '月付价格'),
+            'price_year'  => self::planPrice('price_year', '年付价格'),
+            'max_users'   => self::planInt('max_users', '账号数上限', 0, 100000),
+            'max_orders'  => self::planInt('max_orders', '订单数上限', 0, 10000000),
+            'remark'      => $remark,
+            'sort'        => self::planInt('sort', '排序', 0, 9999),
+        ];
+    }
+
+    private static function planPrice(string $key, string $label): string
+    {
+        $v = Req::num($key, 0);
+        if (!is_numeric($v) || (float) $v < 0 || (float) $v > 9999999.99) {
+            Response::fail($label . '需为 0 ~ 9999999.99 的数字');
+        }
+        return number_format((float) $v, 2, '.', '');
+    }
+
+    private static function planInt(string $key, string $label, int $min, int $max): int
+    {
+        $v = Req::input($key, 0);
+        if (!is_numeric($v) || (int) $v != (float) $v || (int) $v < $min || (int) $v > $max) {
+            Response::fail($label . '需为 ' . $min . ' ~ ' . $max . ' 的整数');
+        }
+        return (int) $v;
+    }
+
+    /** 待收款（催款清单）：已开通租户的未支付账单按租户汇总，带管理员联系方式 */
+    public static function receivables(): void
+    {
+        Auth::requirePlatform();
+        Response::ok(ControlDb::all(
+            "SELECT t.id AS tenant_id, t.code AS tenant_code, t.name AS tenant_name, t.contact_name,
+                    t.contact_phone, t.contact_email, t.admin_username, t.expires_at,
+                    COUNT(b.id) AS bill_count, SUM(b.amount) AS amount, MIN(b.created_at) AS first_at
+               FROM saas_bill b JOIN saas_tenant t ON t.id = b.tenant_id
+              WHERE b.status = 'unpaid' AND t.status = 'active'
+              GROUP BY t.id, t.code, t.name, t.contact_name, t.contact_phone, t.contact_email, t.admin_username, t.expires_at
+              ORDER BY SUM(b.amount) DESC, t.id"
+        ));
     }
 
     public static function approve(array $p): void
