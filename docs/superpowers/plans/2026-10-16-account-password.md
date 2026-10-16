@@ -817,9 +817,9 @@ git add version.json && git commit -m "chore: version bump（$BUILD）"
 
 ### 任务 8：手工验收 + 发布 + 合并（控制者执行）
 
-- [ ] **步骤 8.0：最终整体审查**（子代理，`git diff main..HEAD`）——通过后合并。
-- [ ] **步骤 8.1：合并 main** —— `git checkout main && git merge --ff-only feat/account-password && git push origin main`。
-- [ ] **步骤 8.2：发布**（顺序：备份 → 控制面迁移×2 → 数据面共享库迁移×2 → **专用库扇出 dry-run+实跑** → rsync+reload → 验证）：
+- [x] **步骤 8.0：最终整体审查**（子代理，`git diff main..HEAD`）——通过后合并。
+- [x] **步骤 8.1：合并 main** —— `git checkout main && git merge --ff-only feat/account-password && git push origin main`。
+- [x] **步骤 8.2：发布**（顺序：备份 → 控制面迁移×2 → 数据面共享库迁移×2 → **专用库扇出 dry-run+实跑** → rsync+reload → 验证）：
 
 ```bash
 ssh breeder.sflswall.com.cn 'sudo sh -c "mysqldump -u root --databases qingguan qingguan_control --single-transaction > /var/backups/qingguan/pre-account-$(date +%Y%m%d).sql"'
@@ -829,7 +829,7 @@ ssh breeder.sflswall.com.cn 'sudo mysql -u root qingguan_control < /tmp/migratio
 ssh breeder.sflswall.com.cn 'cd /opt/qingguan && php scripts/migrate_dedicated.php db/migration_20261016_user_force_change.sql --dry-run && php scripts/migrate_dedicated.php db/migration_20261016_user_force_change.sql'
 ```
 
-- [ ] **步骤 8.3：生产验证** —— version.json 新 build；未登录 /api/platform/accounts → 401；平台登录 → /api/platform/accounts code 0；/api/platform/settings GET code 0；**在「账单」视图收款信息卡填入真实对公账户**；租户登录不受影响。
+- [x] **步骤 8.3：生产验证** —— version.json 新 build；未登录 /api/platform/accounts → 401；平台登录 → /api/platform/accounts code 0；/api/platform/settings GET code 0；**在「账单」视图收款信息卡填入真实对公账户**；租户登录不受影响。
 - [ ] **步骤 8.4：手工验收** —— 浏览器过两处强改对话框与临时密码一次性展示；记录到本计划末尾执行记录并提交推送。
 
 ---
@@ -859,3 +859,16 @@ ssh breeder.sflswall.com.cn 'cd /opt/qingguan && php scripts/migrate_dedicated.p
 - **任务 7**（`840fd26` + `f71f1b7`）：`tests/test_account_http.php` 五组 HTTP 用例（合成 9200xx 段），跑前跑后清限流桶、测后清理数据；套件 **85 passed, 0 failed**、`guard ok`。变异验证（5 处临时变异 → 4 组 FAIL + 1 组单跑 FAIL）证明用例有效。AGENTS.md 同步（基线 85、目录地图、§6 账号段、§7 限流口径、§9 新增坑 11-14）。
 - **版本**：`37939183a6`（代码提交 `3793918`）→ `version.json` 已 bump（`f7e6706`）。
 - 浏览器验收（Playwright + 本地 Chromium，API 打桩）：两页强改弹窗标题/无关闭钮/Esc 不关/「退出登录」+「确定」；平台「账号」视图 1 个「当前账号」标记、自己无「停用」；`/platform/settings` 正常时保存可用、500 时保存禁用；临时密码弹窗复制按钮实测剪贴板内容一致，全程无 console/page error。
+
+### 2026-10-16 · 任务 8（合并 + 发布，已上线）
+
+- **8.0 最终整体审查**：子代理通读 `git diff main..HEAD`（16 提交），结论**可合并**（必须修复项全是发布顺序项，无代码缺陷）。实跑门禁 85/0 + guard ok（两次）。审查另指出 3 处跨任务缺口，均已就地修掉（`3cc1c94`）：审计视图没跟上新动作（`AUDIT_ACTIONS` 白名单 + `platform.html` 的 `auditActions/auditText/auditTag` 补齐 7 个新动作，并把漏掉的 `bill_paid/bill_void` 补进后端白名单）、`saas_setting.updated_by` 的列注释在 schema 与迁移间漂移（已对齐，并在 dev 上 `ALTER` 同步）、「强改只是前端门禁」的口径写进 AGENTS §6 与规格 §4.2。
+- **8.1 合并**：`feat/account-password` → `main` ff-only（`main` 现 `22be366`），已 `push origin main`。
+- **8.2 发布 breeder**（按审查修正后的顺序：**控制面迁移 → 共享库迁移 → 专用库扇出 → 再切代码**，避免「新代码 ↔ 旧结构」窗口）：
+  - 备份 `/var/backups/qingguan/pre-account-20261016.sql`（62 KB）；
+  - 控制面 `qingguan_control` 跑 `migration_20261016_platform_account.sql` ×2、共享库 `qingguan` 跑 `migration_20261016_user_force_change.sql` ×2，全 OK；
+  - **扇出前置**：先把修好的 `scripts/migrate_dedicated.php` 与迁移文件 scp 到 `/opt/qingguan`，再跑 dry-run + 实跑 —— 生产当前无已开通专用库（`pengcheng` 仍 pending），输出「没有已开通的专用库，无事可做」；脚本修复本身已随本次上线，后续开通专用档即可受益；
+  - `rsync` 全量代码 → `chown` → `reload apache2`（`RELOAD_OK`）。
+  - 生产结构核查：`saas_platform_user.must_change_password` / `saas_setting` / `sys_user.must_change_password` 均在位；**存量用户被锁进强改流程的数量 = 0**（数据面 0、平台侧 0）。
+- **8.3 生产验证**（https://qingguan.sflswall.com.cn）：`version.json` = `3cc1c946e7`；未登录 `GET /api/platform/accounts` 与 `/api/platform/settings` → `401`；平台超管登录 → `/api/platform/accounts` code 0；`/api/platform/settings` GET code 0（`billing_notice: null`）；`/api/platform/audits?action=setting_update` code 0（新动作筛选可用）；租户 `demo` 登录与 `/auth/me` 不受影响，`billing.notice` 落默认文案（**待办：请在平台「账单」视图的收款信息卡填入真实对公账户，租户端条幅即改为真实信息**）。
+- **8.4 手工验收（待人工）**：两处强改弹窗 + 临时密码一次性展示已用 Playwright/Chromium 打桩在 dev 端逐项验证通过（含复制按钮、退出登录逃生口、无 console error）；真实浏览器的人工点检仍建议由人在 dev/生产各过一遍。
