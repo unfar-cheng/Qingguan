@@ -19,7 +19,7 @@
 | 决策点 | 选择 |
 |---|---|
 | 临时密码形态 | **系统生成 12 位随机**（含大小写+数字+符号，剔除易混淆字符（0Oo、1lIi 形近字符族）），响应一次性返回，不落明文 |
-| 首登强改 | **是**：`must_change_password` 标记，登录后强制改密弹窗（不可关闭），改密成功才放行 |
+| 首登强改 | **是**：`must_change_password` 标记，登录后强制改密弹窗（不可关闭），改密成功才放行。**该放行是前端 UX 门禁，接口层不拦**（见 §4.2 末尾） |
 | 平台账号权限 | **等权**（无角色列）；保护规则三条：不能停用自己、不能停用最后一个启用中的账号、只停用不物理删除 |
 | 重置与停用的关系 | 重置顺带启用（status=1），语义为「平台主动恢复该账号访问」 |
 | 收款信息（billing_notice） | **平台管理界面维护**（控制面 `saas_setting` 键值表，白名单键），替代 config.php 手工改；`/auth/me` 读值 = 设置表优先、config 兜底 |
@@ -97,6 +97,8 @@ TempPassword::generate(int $length = 12): string
 - `AuthController::login` 成功后查数据面 `must_change_password`，响应 data 加该布尔；`/auth/me` 同样带出（`UserRepo::findWithRole` 查询为 `sys_user` 全列，新列自动带出——实现时验证）。
 - `AuthController::password`（现有改密接口）成功分支清零：`UPDATE sys_user SET must_change_password = 0 WHERE id = ?`。
 - 前端 `index.html`：`created` 里 `/auth/me` 返回 `must_change_password === true` → 弹**不可关闭**的强改对话框（复用现有「修改密码」表单加 force 模式：隐藏取消、遮罩不可点掉、改密成功才关闭放行；旧密码 = 临时密码）。强改完成前不渲染外壳菜单数据接口调用拦截无必要——接口层本就有鉴权，强改是 UX 约束。
+
+> **落地澄清（2026-10-16）**：强改**只是前端门禁**。接口层不校验 `must_change_password`，所以拿到临时密码的会话能绕过弹窗直接调接口，也能直达 `pages/*.html`。若日后要做成硬闸，得加统一中间件；现在不要假设它拦得住自动化调用。另外响应里的值是 **int `0/1`**（不是布尔），前端按真值判断即可。强改弹窗另有「退出登录」逃生口（拿不到正确原密码时至少能离开）。
 
 ### 4.3 前端入口
 

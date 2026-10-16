@@ -103,7 +103,9 @@ class PlatformController
     }
 
     /** 审计动作白名单：筛选参数只接受这些值，其余静默忽略（不 500、不注入） */
-    private const AUDIT_ACTIONS = ['register', 'approve', 'reject', 'suspend', 'enable', 'login', 'provision_failed'];
+    private const AUDIT_ACTIONS = ['register', 'approve', 'reject', 'suspend', 'enable', 'login', 'bill_paid', 'bill_void',
+        'provision_failed', 'admin_reset', 'account_create', 'account_disable', 'account_enable', 'account_reset',
+        'account_password', 'setting_update'];
 
     /** 审计日志（只读）：时间倒序，可按动作与目标租户（代码）筛选。platform_user_id 为空 = 申请人自注册。 */
     public static function audits(): void

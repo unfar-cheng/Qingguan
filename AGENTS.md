@@ -51,7 +51,17 @@ mysqldump -h 127.0.0.1 -u qingguan_dev -p qingguan_dev > /tmp/qingguan_before.sq
 mysql -h 127.0.0.1 -u qingguan_dev -p qingguan_dev < db/migration_20261015_multitenant.sql
 mysql -h 127.0.0.1 -u qingguan_dev -p qingguan_dev < db/migration_20261015_role_rename.sql
 mysql -h 127.0.0.1 -u qingguan_dev -p qingguan_dev < db/migration_20261015_order_log_detail.sql
+mysql -h 127.0.0.1 -u qingguan_dev -p qingguan_dev < db/migration_20261016_user_force_change.sql
+
+# 控制面迁移（走 sudo -n mysql；生产是 sudo mysql）：控制面库与数据面库分开跑，别混
+sudo -n mysql qingguan_control_dev < db/migration_20261016_platform_account.sql
+
+# 专用档租户库扇出（每个专用库都要跟上同一份数据面迁移；脚本已自动取尽结果集，可重复执行）
+php83 scripts/migrate_dedicated.php db/migration_20261016_user_force_change.sql --dry-run
+php83 scripts/migrate_dedicated.php db/migration_20261016_user_force_change.sql
 ```
+
+迁移的执行顺序有硬约束（踩过）：**控制面迁移 → 数据面共享库迁移 → 专用库扇出 → 同步代码 → reload**。反过来的后果：`/auth/me` 每次都读 `saas_setting`，表不存在会让整站登录后又被弹回登录页；专用库没迁移则租户改密/平台代重置会 500（甚至出现「报错但密码已改」）。
 
 发布到 breeder（`rsync` **故意不加 `--delete`**，避免清掉远程 `uploads/`）：
 
@@ -63,6 +73,8 @@ ssh breeder.sflswall.com.cn 'sudo systemctl reload apache2'
 ```
 
 远程 `api/config/config.php` **不入库、由部署单独维护**，新增配置键（如 `control_db`）要在 breeder 上手工补。发布顺序：备份 → 迁移（在切代码**之前**，新代码依赖新结构）→ 同步代码 → reload → 验证。
+
+**专用档租户库的扇出要赶在同步代码之前**（否则「新代码 ↔ 旧结构」窗口里租户改密会 500）。但扇出脚本 `scripts/migrate_dedicated.php` 常常正是本次要发布的改动，所以顺序是：`scp` 脚本 + 迁移文件到 breeder（临时目录即可，脚本只依赖 `api/src/{App,Response,ControlDb,DedicatedDb,repos/ProvisionRepo}.php`）→ 在 breeder 上跑扇出 → 再 `rsync` 全量代码 + reload。
 
 ## 3. 目录与代码地图
 
@@ -139,6 +151,7 @@ ops/                   Apache vhost 与 php83-fpm 池配置
 - **平台账号等权**：`saas_platform_user` 没有超管/普通之分，任何启用账号都能管理其他账号与执行代重置；因此上面的规则是唯一护栏，别绕过接口直接改库。
 - `must_change_password` 只在「改密成功」路径清零：租户侧 `UserRepo::clearMustChangePassword()`（带 `tenant_id` 隔离）、平台侧 `PlatformController::platformPassword()`（新密码 **≥10 位**；租户侧 `/auth/password` 仍是 ≥6 位）。
 - 平台设置（收款信息）走控制面 `saas_setting` 键值表，键白名单在 `PlatformController::SETTING_KEYS`（当前只有 `billing_notice`）；`PUT /platform/settings` **只处理请求体里出现的白名单键**，**显式空串 = 清空**（删行、租户端回落 `config.php` 的 `app.billing_notice` 或默认文案），>2000 字拒绝，无有效键报「没有需要更新的设置项」。租户端数据源：`/auth/me` 的 `billing.notice`。
+- **强改是前端 UX 门禁，不是服务端安全闸**：接口层不拦 `must_change_password=1` 的会话——拿到临时密码的人（或脚本）可以绕过弹窗直接调接口、也能直达 `pages/*.html`。真要变成硬闸，需要一个统一的中间件，别以为现在已经是。设计口径见规格 §4.2。
 
 **数据面库**（共享库或每租户专用库，21 张表）：7 张 `sys_*` + `org_company`、`biz_plan`、`biz_order` 及子表、`biz_isf`、`biz_inspect`、`biz_pickup`、`fin_account`、`fin_recharge`、`fin_payable`。**所有业务表都带 `tenant_id`**，唯一键已改造成 `uk_tenant_*` 复合键，另有 `idx_tenant_list`/`idx_tenant_order`。
 

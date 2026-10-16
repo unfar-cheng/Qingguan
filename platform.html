@@ -79,7 +79,7 @@
     </div>
     <el-table :data="aRows" :row-class-name="auditRowClass">
       <el-table-column prop="created_at" label="时间" width="160"></el-table-column>
-      <el-table-column label="动作" width="120">
+      <el-table-column label="动作" width="170">
         <template #default="s"><el-tag :type="auditTag(s.row.action)">{{ auditText(s.row.action) }}</el-tag></template>
       </el-table-column>
       <el-table-column label="租户" min-width="170">
@@ -260,7 +260,8 @@ QG.mount(function () {
         noticeDraft: '', noticeSaving: false, noticeLoaded: false,
         pwdVisible: false, pwdForce: false, saving: false,
         pwdForm: { old_password: '', new_password: '', confirm: '' },
-        auditActions: ['register', 'approve', 'reject', 'suspend', 'enable', 'login', 'bill_paid', 'bill_void', 'provision_failed']
+        auditActions: ['register', 'approve', 'reject', 'suspend', 'enable', 'login', 'bill_paid', 'bill_void', 'provision_failed',
+          'admin_reset', 'account_create', 'account_disable', 'account_enable', 'account_reset', 'account_password', 'setting_update']
       };
     },
     created: function () {
@@ -440,10 +441,21 @@ QG.mount(function () {
         return g > 0 ? { label: date + '（宽限剩 ' + g + ' 天）', type: 'danger' } : { label: date + '（已过期）', type: 'danger' };
       },
       auditText: function (a) {
-        return { register: '注册申请', approve: '通过开通', reject: '驳回', suspend: '停用', enable: '启用', login: '平台登录', bill_paid: '确认收款', bill_void: '账单作废', provision_failed: '开通失败' }[a] || a;
+        return {
+          register: '注册申请', approve: '通过开通', reject: '驳回', suspend: '停用', enable: '启用', login: '平台登录',
+          bill_paid: '确认收款', bill_void: '账单作废', provision_failed: '开通失败',
+          admin_reset: '代重置管理员密码', account_create: '新增平台账号', account_disable: '停用平台账号',
+          account_enable: '启用平台账号', account_reset: '重置平台账号密码', account_password: '平台账号改密',
+          setting_update: '平台设置'
+        }[a] || a;
       },
       auditTag: function (a) {
-        return { approve: 'success', enable: 'success', reject: 'danger', bill_paid: 'success', bill_void: 'warning', provision_failed: 'danger', suspend: 'warning', register: 'info', login: 'info' }[a] || 'info';
+        return {
+          approve: 'success', enable: 'success', reject: 'danger', bill_paid: 'success', bill_void: 'warning',
+          provision_failed: 'danger', suspend: 'warning', register: 'info', login: 'info',
+          admin_reset: 'warning', account_create: 'success', account_disable: 'warning', account_enable: 'success',
+          account_reset: 'warning', account_password: 'info', setting_update: 'info'
+        }[a] || 'info';
       },
       auditRowClass: function (o) {
         return o.row && o.row.action === 'provision_failed' ? 'audit-fail-row' : '';
