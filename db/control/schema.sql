@@ -74,8 +74,8 @@ CREATE TABLE IF NOT EXISTS `saas_audit` (
 
 -- 两个套餐（示例价格，上线前按实际改）
 INSERT INTO `saas_plan` (`code`,`name`,`mode`,`price_month`,`price_year`,`max_users`,`max_orders`,`remark`,`status`,`sort`) VALUES
-  ('basic',    '标准版（共享）', 'shared',    600.00,  6000.00,  20,  5000, '数据与其他租户共享一套库，逻辑隔离', 1, 1),
-  ('isolated', '隔离版（独享）', 'dedicated', 1500.00, 15000.00, 50, 50000, '独立数据库，物理隔离（二期开通）', 1, 2);
+  ('basic',    '标准版（共享）', 'shared',    600.00,  7200.00,  20,  5000, '数据与其他租户共享一套库，逻辑隔离', 1, 1),
+  ('isolated', '隔离版（独享）', 'dedicated', 1500.00, 18000.00, 50, 50000, '独立数据库，物理隔离（二期开通）', 1, 2);
 
 CREATE TABLE IF NOT EXISTS `saas_bill` (
   `id`           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
