@@ -23,6 +23,7 @@ class TenantProvisioner
         if (!in_array($mode, ['shared', 'dedicated'], true)) {
             throw new \RuntimeException('未知服务档位：' . $mode);
         }
+        $dbName = $mode === 'dedicated' ? DedicatedDb::name((string) $tenant['code']) : '';
         $status = (string) ($tenant['status'] ?? '');
         if (!in_array($status, ['pending', 'active'], true)) {
             throw new \RuntimeException('当前状态不可开通：' . ($tenant['status'] ?? ''));
@@ -51,7 +52,7 @@ class TenantProvisioner
         } else {
             $n = ControlDb::exec(
                 "UPDATE saas_tenant SET status = 'active', db_name = ?, reviewed_at = NOW(), reviewed_by = ?, admin_password_hash = '', reject_reason = '' WHERE id = ? AND status = 'pending'",
-                [DedicatedDb::name((string) $tenant['code']), $platformUserId, $tid]
+                [$dbName, $platformUserId, $tid]
             );
         }
         if ($n === 0) {
@@ -67,7 +68,7 @@ class TenantProvisioner
             'target_id'        => $tid,
             'detail'           => $mode === 'shared'
                 ? '开通成功（共享档播种 + 管理员 ' . $tenant['admin_username'] . '）'
-                : '开通成功（专用库 ' . DedicatedDb::name((string) $tenant['code']) . ' + 管理员 ' . $tenant['admin_username'] . '）',
+                : '开通成功（专用库 ' . $dbName . ' + 管理员 ' . $tenant['admin_username'] . '）',
             'ip'               => App::ip(),
         ]);
     }
