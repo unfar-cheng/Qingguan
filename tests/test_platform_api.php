@@ -261,3 +261,116 @@ t('概览接口：summary 键齐全且与库一致，租户关键词搜索转义
         @unlink($jar);
     }
 });
+
+t('套餐管理：新增/修改/失效/启用闭环，且失效后注册页不可选、最后一个启用套餐不可停用', function () {
+    if (!qg_site_up()) { return; }
+    $jar = platform_jar();
+    if (!$jar) { echo "      ${'平台超管'}不可用，跳过\n"; return; }
+    $code = 'pl' . substr(md5(uniqid()), 0, 8);
+    $pid = 0;
+    pa_reset_ratelimit();   // register 桶是 5 次/小时，套件内多处注册会互相挤，按 test_account_http 的既有做法清桶
+    try {
+        // 新增：非法代码 / 非法档位 都要被拒
+        $r = qg_post_json('/api/platform/plans', ['code' => 'Bad_Code', 'name' => 'x', 'mode' => 'shared'], ['-b', $jar]);
+        assert_contains($r, '套餐代码需为', '非法套餐代码应被拒：' . $r);
+        $r = qg_post_json('/api/platform/plans', ['code' => $code, 'name' => 'x', 'mode' => 'weird'], ['-b', $jar]);
+        assert_contains($r, '隔离档', '非法隔离档应被拒：' . $r);
+        $r = qg_post_json('/api/platform/plans', ['code' => $code, 'name' => 'x', 'mode' => 'shared', 'price_month' => -1], ['-b', $jar]);
+        assert_contains($r, '月付价格', '负数价格应被拒：' . $r);
+
+        $r = qg_post_json('/api/platform/plans', [
+            'code' => $code, 'name' => '用例套餐', 'mode' => 'shared',
+            'price_month' => 100, 'price_year' => 1200, 'max_users' => 5, 'max_orders' => 100, 'remark' => '用例', 'sort' => 8,
+        ], ['-b', $jar]);
+        assert_contains($r, '"code":0', '新增套餐应成功：' . $r);
+        $pid = (int) (json_decode($r, true)['data']['id'] ?? 0);
+        assert_true($pid > 0, '应返回新套餐 id');
+        // 重复 code 被拒
+        $r = qg_post_json('/api/platform/plans', ['code' => $code, 'name' => 'x', 'mode' => 'shared'], ['-b', $jar]);
+        assert_contains($r, '已存在', '重复套餐代码应被拒：' . $r);
+        // 注册页可见（status=1）
+        assert_contains(qg_curl('/api/plans/public'), $code, '启用中的套餐应出现在注册页数据源里');
+
+        // 修改
+        $r = qg_curl('/api/platform/plans/' . $pid, ['-X', 'PUT', '-H', 'Content-Type: application/json', '-b', $jar,
+            '-d', json_encode(['code' => $code, 'name' => '用例套餐改', 'mode' => 'dedicated',
+                'price_month' => 200, 'price_year' => 2400, 'max_users' => 6, 'max_orders' => 200, 'remark' => '改', 'sort' => 7])]);
+        assert_contains($r, '"code":0', '修改套餐应成功：' . $r);
+        $row = ControlDb::one('SELECT * FROM saas_plan WHERE id = ?', [$pid]);
+        assert_eq('用例套餐改', $row['name'] ?? '', '名称应已更新');
+        assert_eq('200.00', number_format((float) $row['price_month'], 2, '.', ''), '月价应已更新');
+        assert_eq('dedicated', $row['mode'] ?? '', '隔离档应已更新');
+
+        // 失效 → 注册页不可见、重复失效被拒
+        $r = qg_post_json('/api/platform/plans/' . $pid . '/disable', [], ['-b', $jar]);
+        assert_contains($r, '"code":0', '失效应成功：' . $r);
+        assert_true(strpos(qg_curl('/api/plans/public'), $code) === false, '失效后不应出现在注册页数据源里');
+        assert_eq(0, (int) ControlDb::val('SELECT status FROM saas_plan WHERE id = ?', [$pid]), '库里应为 status=0');
+        $r = qg_post_json('/api/platform/plans/' . $pid . '/disable', [], ['-b', $jar]);
+        assert_contains($r, '状态已变化', '重复失效应被拒：' . $r);
+        // 失效的套餐不能再被注册（服务端校验，不只是前端不展示）
+        $r = qg_post_json('/api/tenant/register', ['name' => 'x', 'code' => 'zz' . substr(md5(uniqid()), 0, 8),
+            'contact_name' => 'x', 'contact_phone' => '13800000000', 'admin_username' => 'boss',
+            'password' => 'TestPass123', 'plan_id' => $pid, 'bill_cycle' => 'year']);
+        assert_contains($r, '套餐不存在或已停用', '失效套餐不应可被注册：' . $r);
+
+        // 启用回来
+        $r = qg_post_json('/api/platform/plans/' . $pid . '/enable', [], ['-b', $jar]);
+        assert_contains($r, '"code":0', '启用应成功：' . $r);
+        assert_contains(qg_curl('/api/plans/public'), $code, '启用后应重新出现在注册页数据源里');
+
+        // 未登录 401
+        assert_contains(qg_curl('/api/platform/plans'), '"code":401', '未登录套餐列表应 401');
+    } finally {
+        if ($pid > 0) {
+            ControlDb::exec('DELETE FROM saas_plan WHERE id = ?', [$pid]);
+            ControlDb::exec('DELETE FROM saas_audit WHERE action LIKE ? AND detail LIKE ?', ['plan_%', '%' . $code . '%']);
+        }
+        @unlink($jar);
+    }
+});
+
+t('待收款清单：只含已开通且有未支付账单的租户，并带管理员联系方式', function () {
+    if (!qg_site_up()) { return; }
+    $jar = platform_jar();
+    if (!$jar) { echo "      平台超管不可用，跳过\n"; return; }
+    $tidActive = 999907;
+    $tidPending = 999908;
+    try {
+        foreach ([$tidActive, $tidPending] as $id) {
+            ControlDb::exec('DELETE FROM saas_tenant WHERE id = ?', [$id]);
+        }
+        ControlDb::exec("INSERT INTO saas_tenant (id, code, name, mode, status, contact_name, contact_phone, contact_email, admin_username, applied_at)
+                         VALUES (?, 'sm999907', '待收冒烟已开通', 'shared', 'active', '催款人', '13900001111', 'cui@example.com', 'boss', NOW())", [$tidActive]);
+        ControlDb::exec("INSERT INTO saas_tenant (id, code, name, mode, status, contact_name, contact_phone, admin_username, applied_at)
+                         VALUES (?, 'sm999908', '待收冒烟未审核', 'shared', 'pending', '别催我', '13900002222', 'boss', NOW())", [$tidPending]);
+        ControlDb::exec("INSERT INTO saas_bill (tenant_id, cycle, amount, status) VALUES (?, 'year', 4321.00, 'unpaid')", [$tidActive]);
+        ControlDb::exec("INSERT INTO saas_bill (tenant_id, cycle, amount, status) VALUES (?, 'year', 9999.00, 'unpaid')", [$tidPending]);
+
+        $r = qg_curl('/api/platform/receivables', ['-b', $jar]);
+        assert_contains($r, '"code":0', '待收款接口应可访问：' . $r);
+        assert_contains($r, '待收冒烟已开通', '已开通欠款租户应出现：' . $r);
+        assert_contains($r, '"contact_phone":"13900001111"', '应带出联系电话：' . $r);
+        assert_contains($r, '"contact_email":"cui@example.com"', '应带出邮箱：' . $r);
+        assert_contains($r, '"admin_username":"boss"', '应带出管理员账号：' . $r);
+        assert_true(strpos($r, '待收冒烟未审核') === false, '未审核租户不应进催款清单：' . $r);
+        // 账单列表也要带联系方式（列表页做「催款」用）
+        assert_contains(qg_curl('/api/platform/bills?tenant=sm999907&pageSize=5', ['-b', $jar]), '"contact_phone":"13900001111"', '账单列表应带联系方式');
+        assert_contains(qg_curl('/api/platform/receivables'), '"code":401', '未登录待收款应 401');
+    } finally {
+        foreach ([$tidActive, $tidPending] as $id) {
+            ControlDb::exec('DELETE FROM saas_bill WHERE tenant_id = ?', [$id]);
+            ControlDb::exec("DELETE FROM saas_audit WHERE target_type = 'tenant' AND target_id = ?", [$id]);
+            ControlDb::exec('DELETE FROM saas_tenant WHERE id = ?', [$id]);
+        }
+        @unlink($jar);
+    }
+});
+
+/** 清空文件型限流桶（与 tests/bootstrap.php / test_account_http.php 同源做法） */
+function pa_reset_ratelimit(): void
+{
+    foreach (glob(dirname(__DIR__) . '/api/runtime/ratelimit/*.json') ?: [] as $f) {
+        @unlink($f);
+    }
+}
