@@ -109,7 +109,7 @@ ops/                   Apache vhost 与 php83-fpm 池配置
 
 **多租户连接选择**：唯一变量是 `Tenant::pdo()`——`mode==='dedicated' && db_name` 用专用库，否则用共享库 `App::config('db')['name']`。连接按库名缓存在 `Tenant::$pools`。没有租户上下文就 403。
 
-**专用档（dedicated）开通**（2026-10-15 起已实现，规格见 `docs/superpowers/specs/2026-10-15-dedicated-provisioning-design.md`）：审核通过即全自动 `CREATE DATABASE qingguan_t_<code>` + 建 `qg_<code>` 账号（密码 = HMAC-SHA256('db-pass:'+code, app.secret) 的 hex，**不落库**，`api/src/DedicatedDb.php` 派生）+ 灌 schema.sql 播种。全链路幂等，失败留 pending，重新点「通过」即续跑；**系统绝不自动 DROP**，库/账号清理走手工。`app.secret` 轮换会使全部专用库账号密码失效——用新 secret 现算派生值，对每个账号跑 `ALTER USER `qg_<code>`@`<host>` IDENTIFIED BY '<新派生hex>'`。专用库出现后，表结构迁移 = 共享库跑一遍 + `php83 scripts/migrate_dedicated.php <file>` 逐库跑（`--dry-run` 先看清单）。运维监控点：`saas_audit` 的 `provision_failed` 记录即开通失败告警源（当前人工查看）。secret 轮换时生成新派生值的现成命令：`php83 -r 'echo hash_hmac("sha256", "db-pass:<code>", "<新secret>";'`。
+**专用档（dedicated）开通**（2026-10-15 起已实现，规格见 `docs/superpowers/specs/2026-10-15-dedicated-provisioning-design.md`）：审核通过即全自动 `CREATE DATABASE qingguan_t_<code>` + 建 `qg_<code>` 账号（密码 = HMAC-SHA256('db-pass:'+code, app.secret) 的 hex，**不落库**，`api/src/DedicatedDb.php` 派生）+ 灌 schema.sql 播种。全链路幂等，失败留 pending，重新点「通过」即续跑；**系统绝不自动 DROP**，库/账号清理走手工。`app.secret` 轮换会使全部专用库账号密码失效——用新 secret 现算派生值，对每个账号跑 `ALTER USER `qg_<code>`@`<host>` IDENTIFIED BY '<新派生hex>'`。专用库出现后，表结构迁移 = 共享库跑一遍 + `php83 scripts/migrate_dedicated.php <file>` 逐库跑（`--dry-run` 先看清单）。运维监控点：`saas_audit` 的 `provision_failed` 记录即开通失败告警源（当前人工查看）。secret 轮换时生成新派生值的现成命令：`php83 -r 'echo hash_hmac("sha256", "db-pass:<code>", "<新secret>");'`。
 
 **仓储层是硬约束（有守卫脚本）**：`tests/guard_no_raw_business_sql.php` 会红灯，如果
 1. `api/src/repos/` **之外**（`Db.php`/`ControlDb.php` 除外）出现 `Db::all|one|val|exec|insert|update`；
