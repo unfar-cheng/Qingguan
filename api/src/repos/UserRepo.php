@@ -96,6 +96,13 @@ class UserRepo
             [Tenant::requireId(), $id]);
     }
 
+    /** 改密成功后清零首登强改标记 */
+    public static function clearMustChangePassword(int $id): int
+    {
+        return Db::exec('UPDATE sys_user SET must_change_password = 0 WHERE tenant_id = ? AND id = ?',
+            [Tenant::requireId(), $id]);
+    }
+
     /** 软删：同时停用（对齐 SystemController::staffDelete） */
     public static function softDelete(int $id): int
     {

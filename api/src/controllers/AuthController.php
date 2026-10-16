@@ -111,6 +111,7 @@ class AuthController
             Response::fail('原密码不正确');
         }
         UserRepo::setPassword((int) $u['id'], password_hash($new, PASSWORD_DEFAULT));
+        UserRepo::clearMustChangePassword((int) $u['id']);
         App::log('auth', 'password', $u['id']);
         Response::ok(null, '密码已修改');
     }
