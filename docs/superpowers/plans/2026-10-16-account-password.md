@@ -77,12 +77,12 @@ t('TempPassword：500 次生成无重复、长度可调、过短拒绝', functio
 namespace QG;
 
 /**
- * 临时密码生成（代重置 / 新增账号）。12 位，含大小写+数字+符号，剔除易混淆字符 0O1lI。
+ * 临时密码生成（代重置 / 新增账号）。12 位，含大小写+数字+符号，剔除易混淆字符（0Oo、1lIi 形近字符族）。
  * 服务端只存哈希；明文仅出现在一次性响应里，不落库、不进审计与日志。
  */
 class TempPassword
 {
-    private const CHARSET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*';
+    private const CHARSET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%^&*';
 
     public static function generate(int $length = 12): string
     {
