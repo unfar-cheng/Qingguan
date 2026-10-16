@@ -132,25 +132,28 @@
             <el-button @click="resetTenantFilter">重置</el-button>
           </div>
           <el-table :data="rows">
-            <el-table-column prop="id" label="ID" width="70"></el-table-column>
-            <el-table-column prop="code" label="租户代码" width="120"></el-table-column>
-            <el-table-column prop="name" label="企业名称" min-width="170"></el-table-column>
-            <el-table-column prop="plan_name" label="套餐" width="140"></el-table-column>
-            <el-table-column label="隔离档" width="150">
-              <template #default="s">{{ s.row.mode === 'dedicated' ? ('独享 ' + (s.row.db_name || ('qingguan_t_' + s.row.code))) : '共享库' }}</template>
+            <el-table-column label="企业" min-width="220">
+              <template #default="s">
+                <div class="cell-main">{{ s.row.name }}</div>
+                <div class="cell-sub">#{{ s.row.id }} · {{ s.row.contact_name }} {{ s.row.contact_phone || s.row.contact_email }}</div>
+              </template>
             </el-table-column>
-            <el-table-column label="有效期" width="210">
-              <template #default="s"><el-tag :type="expiryState(s.row).type">{{ expiryState(s.row).label }}</el-tag></template>
+            <el-table-column prop="code" label="租户代码" width="105"></el-table-column>
+            <el-table-column label="套餐" width="175">
+              <template #default="s">
+                <div>{{ s.row.plan_name }}</div>
+                <div v-if="s.row.mode === 'dedicated'" class="cell-sub">独享 {{ s.row.db_name || ('qingguan_t_' + s.row.code) }}</div>
+              </template>
             </el-table-column>
-            <el-table-column label="联系人" min-width="150">
-              <template #default="s">{{ s.row.contact_name }} {{ s.row.contact_phone || s.row.contact_email }}</template>
+            <el-table-column label="有效期" width="165">
+              <template #default="s"><el-tag :type="expiryState(s.row).type" :title="expiryState(s.row).title">{{ expiryState(s.row).label }}</el-tag></template>
             </el-table-column>
-            <el-table-column prop="admin_username" label="管理员" width="100"></el-table-column>
+            <el-table-column prop="admin_username" label="管理员" width="85"></el-table-column>
             <el-table-column prop="applied_at" label="申请时间" width="160"></el-table-column>
-            <el-table-column label="状态" width="90">
+            <el-table-column label="状态" width="75">
               <template #default="s"><el-tag :type="tagType(s.row.status)">{{ statusText(s.row.status) }}</el-tag></template>
             </el-table-column>
-            <el-table-column label="操作" width="200" fixed="right">
+            <el-table-column label="操作" width="170" fixed="right">
               <template #default="s">
                 <template v-if="s.row.status === 'pending'">
                   <el-button size="small" type="primary" @click="approve(s.row)">通过</el-button>
@@ -343,6 +346,8 @@
   .qg-copy-btn:hover { background: #409eff; color: #fff; }
 
   /* ---------- 平台管理专用 ---------- */
+  .cell-main{color:#1f2328;font-weight:600}
+  .cell-sub{color:#909399;font-size:12px;line-height:1.5}
   .view-overview .stat-grid{grid-template-columns:repeat(4,1fr);margin-bottom:14px}
   .stat-card.stat-click{cursor:pointer;transition:border-color .15s,box-shadow .15s}
   .stat-card.stat-click:hover{border-color:#a9c7e8;box-shadow:0 3px 12px rgba(47,111,179,.10)}
@@ -670,13 +675,14 @@ QG.mount(function () {
         }).catch(function () {});
       },
       expiryState: function (row) {
-        if (!row.expires_at) { return { label: '—', type: 'info' }; }
+        if (!row.expires_at) { return { label: '—', type: 'info', title: '未设置服务期（永久豁免）' }; }
         var date = row.expires_at.slice(0, 10);
         var d = Math.ceil((new Date(row.expires_at.replace(' ', 'T')).getTime() - Date.now()) / 86400000);
-        if (d > 30) { return { label: date, type: 'success' }; }
-        if (d > 0) { return { label: date + '（剩 ' + d + ' 天）', type: 'warning' }; }
+        if (d > 30) { return { label: date, type: 'success', title: '服务期至 ' + date + '（剩 ' + d + ' 天）' }; }
+        if (d > 0) { return { label: date + ' · 剩 ' + d + ' 天', type: 'warning', title: '服务期至 ' + date + '（剩 ' + d + ' 天）' }; }
         var g = d + 30;
-        return g > 0 ? { label: date + '（宽限剩 ' + g + ' 天）', type: 'danger' } : { label: date + '（已过期）', type: 'danger' };
+        if (g > 0) { return { label: date + ' · 宽限 ' + g + ' 天', type: 'danger', title: '已到期 ' + date + '，宽限期还剩 ' + g + ' 天' }; }
+        return { label: date + ' · 已过期', type: 'danger', title: '已过服务期与宽限期' };
       },
       auditText: function (a) {
         return {
