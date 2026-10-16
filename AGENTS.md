@@ -17,6 +17,7 @@
 | Docroot | `/data/qingguan/app` | `/opt/qingguan`（属主 `www-data:www-data`） |
 | PHP | 8.3.35，命令名 **`php83`**；系统 `php` 是 **7.4.33** | 全局 `php8.3-fpm`（reload apache2 即可，PHP 无需重启） |
 | DB | **MariaDB 10.5.29** @127.0.0.1:3306，`qingguan_dev` + `qingguan_control_dev`，账号 `qingguan_dev` | **MySQL 8.0.46**，`qingguan` + `qingguan_control` |
+| 专用档开通 | config 补 `provision_db` 段（dev 用 dev 强密码） | config 的 `provision_db` 段指向 `qg_provision` 账号（只管 `qingguan_t_%`），缺失时专用档审核通过报「未配置」并留 pending |
 | 证书 | certbot webroot（HTTP-01），`/data/qingguan/var/letsencrypt/live/qingguan-dev.sflswall.com.cn/` | acme.sh tls-alpn-01，`/etc/ssl/qingguan/{fullchain,privkey}.pem` |
 | 备份 | — | `/var/backups/qingguan/` |
 
@@ -108,6 +109,8 @@ ops/                   Apache vhost 与 php83-fpm 池配置
 
 **多租户连接选择**：唯一变量是 `Tenant::pdo()`——`mode==='dedicated' && db_name` 用专用库，否则用共享库 `App::config('db')['name']`。连接按库名缓存在 `Tenant::$pools`。没有租户上下文就 403。
 
+**专用档（dedicated）开通**（2026-10-15 起已实现，规格见 `docs/superpowers/specs/2026-10-15-dedicated-provisioning-design.md`）：审核通过即全自动 `CREATE DATABASE qingguan_t_<code>` + 建 `qg_<code>` 账号（密码 = HMAC-SHA256('db-pass:'+code, app.secret) 的 hex，**不落库**，`api/src/DedicatedDb.php` 派生）+ 灌 schema.sql 播种。全链路幂等，失败留 pending，重新点「通过」即续跑；**系统绝不自动 DROP**，库/账号清理走手工。`app.secret` 轮换会使全部专用库账号密码失效——用新 secret 现算派生值，对每个账号跑 `ALTER USER `qg_<code>`@`<host>` IDENTIFIED BY '<新派生hex>'`。专用库出现后，表结构迁移 = 共享库跑一遍 + `php83 scripts/migrate_dedicated.php <file>` 逐库跑（`--dry-run` 先看清单）。
+
 **仓储层是硬约束（有守卫脚本）**：`tests/guard_no_raw_business_sql.php` 会红灯，如果
 1. `api/src/repos/` **之外**（`Db.php`/`ControlDb.php` 除外）出现 `Db::all|one|val|exec|insert|update`；
 2. 仓储里某个引号字符串含 SELECT/INSERT/UPDATE/DELETE 且提到 21 张业务表之一，却没出现 `tenant_id`。
@@ -178,8 +181,9 @@ mysql -u<user> -p <库名> -e "SET @tenant_id := <id>; SOURCE db/schema.sql;"
 4. **平台侧已接线但权限树仍有层级坑**：`SystemController::permissionTree()` 还需支持任意层级（按钮是第 3 级），否则按钮权限会静默消失。
 5. 下拉缓存的正则 `OPTS_SOURCES` 必须是 `dicts?`（复数）——早先写成单数 `dict` 造成过「新字典项不出现在下拉框」的真实 bug。
 6. 附件路径已按租户分目录 `uploads/t<tid>/order/Y/m/`（2026-10-15 起），存量旧路径 `order/...` 由 `php83 scripts/migrate_uploads_namespace.php` 搬迁（幂等，先 `--dry-run`）。**在 breeder 上跑迁移要用 `sudo -u www-data php83 ...`（或跑完 `chown -R www-data:www-data /opt/qingguan/uploads`）**——root 跑会让新目录属主变 root，php-fpm 之后写不进去。
-7. 面向物理隔离档（`mode='dedicated'`）的专用库一台都还没有；写多库逻辑时要能正确处理「0 个专用库」。开通播种器对专用档**显式拒绝**（二期）。
+7. 面向物理隔离档（`mode='dedicated'`）的专用库一台都还没有；写多库逻辑时要能正确处理「0 个专用库」。开通播种器对专用档全自动开通（2026-10-15 起）。
 8. **schema.sql 的语句字符串内不得含 ASCII 分号**：开通播种由 `ProvisionRepo::splitStatements()` 去注释行后按 `;` 切段执行，值里混入 `;` 会切坏语句。同理行尾注释必须 `-- `（带空格）。改 schema.sql 前先看 `ProvisionRepo` 头注释的三条约定。
+9. **`qg_provision` 是高价值凭据但权限收敛**：仅全局 CREATE/CREATE USER + `qingguan_t_%`.* 的 ALL——读不到任何现有业务数据。provision_db 未配置时专用档开通报「未配置」并留 pending，共享档不受影响。专用档租户上下文必须带 `code`（派生凭据用），手工 `Tenant::set` 造 dedicated 上下文而不带 code 会抛「缺少 code」。
 
 ## 10. 提交与分支
 
