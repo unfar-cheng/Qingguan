@@ -216,7 +216,9 @@ t('账单：过期租户登录被拦截', function () {
         bh_make_tenant(7, 'active', date('Y-m-d H:i:s', time() - 10 * 86400), 'year');
         bh_seed_admin(7, 'BhPass123');
         $r = qg_post_json('/api/auth/login', ['tenant' => 'billht6', 'username' => 'boss6', 'password' => 'BhPass123']);
-        assert_contains($r, '服务已到期，请联系平台续费', '超宽限（-40 天）登录应被拦截：' . $r);
+        assert_contains($r, '服务已到期', '超宽限（-40 天）登录应被拦截：' . $r);
+        assert_contains($r, '请联系平台续费', '拦截文案应带续费指引：' . $r);
+        assert_contains($r, substr(date('Y-m-d H:i:s', time() - 40 * 86400), 0, 10), '拦截文案应带到期日期：' . $r);
         $jar = bh_login('billht7', 'boss7', 'BhPass123');
         assert_true($jar !== null, '宽限内（-10 天）登录应成功');
         $me = qg_curl('/api/auth/me', ['-b', $jar]);

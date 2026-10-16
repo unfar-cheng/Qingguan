@@ -142,11 +142,12 @@ QG.mount(function () {
       billTip: function () {
         var b = this.user && this.user.billing;
         if (!b || this.billTipClosed) { return ''; }
-        if (b.state === 'soon') { return '会员剩余 ' + b.days_left + ' 天，请及时续费（左侧「账单中心」可自助续费）'; }
+        var d = b.expires_at ? String(b.expires_at).slice(0, 10) : '';
+        if (b.state === 'soon') { return '会员将于 ' + d + ' 到期，剩余 ' + b.days_left + ' 天，请及时续费（左侧「账单中心」可自助续费）'; }
         if (b.state === 'grace') {
           return b.trial
-            ? '试用期剩余 ' + b.days_left + ' 天，付款后服务期自审核日起算（左侧「账单中心」可自助续费）'
-            : '服务已到期，宽限剩余 ' + b.days_left + ' 天，请尽快续费';
+            ? '试用期剩余 ' + b.days_left + ' 天（至 ' + (b.grace_end || '') + '），付款后服务期自审核日起算（左侧「账单中心」可自助续费）'
+            : '服务期已于 ' + d + ' 到期，请于 ' + (b.grace_end || '') + ' 前续费（左侧「账单中心」可自助续费）';
         }
         return '';
       },
