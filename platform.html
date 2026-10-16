@@ -10,180 +10,307 @@
 </head>
 <body>
 <div id="app" v-cloak>
-<div class="page" v-loading="loading">
-  <div class="page-head">
-    <h2 style="margin:0">平台管理</h2>
-    <div class="spacer"></div>
-    <el-radio-group v-model="view" @change="onView">
-      <el-radio-button value="tenants">租户审核</el-radio-button>
-      <el-radio-button value="audits">审计日志</el-radio-button>
-      <el-radio-button value="bills">账单</el-radio-button>
-      <el-radio-button value="accounts">账号</el-radio-button>
-    </el-radio-group>
-    <el-radio-group v-if="view === 'tenants'" v-model="status" @change="function () { q.page = 1; load(); }">
-      <el-radio-button value="pending">待审核</el-radio-button>
-      <el-radio-button value="active">已开通</el-radio-button>
-      <el-radio-button value="rejected">已驳回</el-radio-button>
-      <el-radio-button value="suspended">已停用</el-radio-button>
-      <el-radio-button value="">全部</el-radio-button>
-    </el-radio-group>
-    <el-button @click="openPwd">修改密码</el-button>
-    <el-button @click="logout">退出</el-button>
-  </div>
-  <div class="card" v-if="view === 'tenants'">
-    <el-table :data="rows">
-      <el-table-column prop="id" label="ID" width="70"></el-table-column>
-      <el-table-column prop="code" label="租户代码" width="120"></el-table-column>
-      <el-table-column prop="name" label="企业名称" min-width="170"></el-table-column>
-      <el-table-column prop="plan_name" label="套餐" width="140"></el-table-column>
-      <el-table-column label="隔离档" width="150">
-        <template #default="s">{{ s.row.mode === 'dedicated' ? ('独享 ' + (s.row.db_name || ('qingguan_t_' + s.row.code))) : '共享库' }}</template>
-      </el-table-column>
-      <el-table-column label="有效期" width="210">
-        <template #default="s"><el-tag :type="expiryState(s.row).type">{{ expiryState(s.row).label }}</el-tag></template>
-      </el-table-column>
-      <el-table-column label="联系人" min-width="150">
-        <template #default="s">{{ s.row.contact_name }} {{ s.row.contact_phone || s.row.contact_email }}</template>
-      </el-table-column>
-      <el-table-column prop="admin_username" label="管理员" width="100"></el-table-column>
-      <el-table-column prop="applied_at" label="申请时间" width="160"></el-table-column>
-      <el-table-column label="状态" width="90">
-        <template #default="s"><el-tag :type="tagType(s.row.status)">{{ statusText(s.row.status) }}</el-tag></template>
-      </el-table-column>
-      <el-table-column label="操作" width="300" fixed="right">
-        <template #default="s">
-          <template v-if="s.row.status === 'pending'">
-            <el-button size="small" type="primary" @click="approve(s.row)">通过</el-button>
-            <el-button size="small" type="danger" plain @click="reject(s.row)">驳回</el-button>
-          </template>
-          <el-button v-if="s.row.status === 'active'" size="small" type="warning" plain @click="suspend(s.row)">停用</el-button>
-          <el-button v-if="s.row.status === 'active'" size="small" plain @click="resetPwd(s.row)">重置密码</el-button>
-          <el-button v-if="s.row.status === 'suspended'" size="small" type="success" plain @click="enable(s.row)">启用</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
-    <el-pagination style="margin-top:12px;justify-content:flex-end" layout="total, prev, pager, next"
-      :total="total" :page-size="q.pageSize" :current-page="q.page"
-      @current-change="function (p) { q.page = p; load(); }"></el-pagination>
-  </div>
-  <div class="card" v-else-if="view === 'audits'" v-loading="aLoading">
-    <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
-      <el-select v-model="aAction" placeholder="全部动作" clearable style="width:150px"
-        @change="function () { aq.page = 1; loadAudits(); }">
-        <el-option v-for="a in auditActions" :key="a" :value="a" :label="auditText(a)"></el-option>
-      </el-select>
-      <el-input v-model="aTenant" placeholder="按租户代码过滤" clearable style="width:180px"
-        @keyup.enter="function () { aq.page = 1; loadAudits(); }"
-        @clear="function () { aq.page = 1; loadAudits(); }"></el-input>
-      <el-button type="primary" plain @click="function () { aq.page = 1; loadAudits(); }">查询</el-button>
+  <div class="layout">
+
+    <!-- 左侧导航 -->
+    <aside class="sidebar" :class="{collapsed: menuCollapsed}">
+      <div class="brand">
+        <div class="dot">平</div>
+        <div class="txt">平台管理</div>
+      </div>
+      <div class="menu-scroll">
+        <el-menu :default-active="view" :collapse="menuCollapsed" :collapse-transition="false" @select="onView">
+          <el-menu-item index="overview">
+            <el-icon><component :is="'DataBoard'"></component></el-icon>
+            <span>概览</span>
+          </el-menu-item>
+          <el-menu-item index="tenants">
+            <el-icon><component :is="'OfficeBuilding'"></component></el-icon>
+            <span>租户审核</span>
+            <span class="side-badge" v-if="pendingCount">{{ pendingCount }}</span>
+          </el-menu-item>
+          <el-menu-item index="bills">
+            <el-icon><component :is="'Tickets'"></component></el-icon>
+            <span>账单</span>
+          </el-menu-item>
+          <el-menu-item index="audits">
+            <el-icon><component :is="'Memo'"></component></el-icon>
+            <span>审计日志</span>
+          </el-menu-item>
+          <el-menu-item index="accounts">
+            <el-icon><component :is="'User'"></component></el-icon>
+            <span>账号</span>
+          </el-menu-item>
+        </el-menu>
+      </div>
+    </aside>
+
+    <!-- 右侧主区 -->
+    <div class="main">
+      <div class="topbar">
+        <div class="hamb" @click="menuCollapsed = !menuCollapsed">
+          <el-icon><component :is="menuCollapsed ? 'Expand' : 'Fold'"></component></el-icon>
+        </div>
+        <div class="crumb"><span>平台管理</span><span> / </span><b>{{ viewTitle }}</b></div>
+        <div class="spacer"></div>
+        <div class="user" style="cursor:default">
+          <div class="avatar">{{ (me.real_name || me.username || '?').slice(0, 1) }}</div>
+          <span>{{ me.real_name || me.username || '—' }}</span>
+        </div>
+        <el-button @click="openPwd">修改密码</el-button>
+        <el-button @click="logout">退出</el-button>
+      </div>
+
+      <div class="page">
+
+        <!-- 概览看板 -->
+        <div class="view-overview" v-if="view === 'overview'" v-loading="oLoading">
+          <div class="stat-grid">
+            <div class="stat-card stat-click" @click="gotoTenants('pending')">
+              <div class="lbl">待审核租户</div>
+              <div class="num orange">{{ stat('pending') }}</div>
+              <div class="hint">点击查看待审核申请</div>
+            </div>
+            <div class="stat-card stat-click" @click="gotoTenants('active')">
+              <div class="lbl">30 天内到期</div>
+              <div class="num red">{{ stat('expiring') }}</div>
+              <div class="hint">点击查看已开通租户</div>
+            </div>
+            <div class="stat-card stat-click" @click="gotoBills('paid')">
+              <div class="lbl">本月已确认收款</div>
+              <div class="num green">{{ statMoney('paid_month') }}</div>
+              <div class="hint">点击查看已支付账单</div>
+            </div>
+            <div class="stat-card stat-click" @click="gotoBills('unpaid')">
+              <div class="lbl">待支付账单</div>
+              <div class="num blue">{{ stat('unpaid_count') }}<span class="unit" v-if="sumLoaded">张</span></div>
+              <div class="hint">共 {{ statMoney('unpaid_amount') }}</div>
+            </div>
+          </div>
+
+          <div class="stat-mini">
+            <span>已过期待宽限<b>{{ stat('expired') }}</b></span>
+            <span>独享档租户<b>{{ stat('dedicated') }}</b></span>
+            <span>已开通租户<b>{{ stat('active') }}</b></span>
+            <span>启用平台账号<b>{{ stat('accounts_on') }}</b></span>
+          </div>
+
+          <div class="card">
+            <div class="card-title">待审核申请</div>
+            <el-table v-if="pendingRows.length" :data="pendingRows">
+              <el-table-column prop="name" label="企业名称" min-width="180"></el-table-column>
+              <el-table-column prop="code" label="租户代码" width="130"></el-table-column>
+              <el-table-column label="联系人" min-width="150">
+                <template #default="s">{{ s.row.contact_name }} {{ s.row.contact_phone || s.row.contact_email }}</template>
+              </el-table-column>
+              <el-table-column prop="applied_at" label="申请时间" width="160"></el-table-column>
+              <el-table-column label="操作" width="170">
+                <template #default="s">
+                  <el-button size="small" type="primary" @click="approve(s.row)">通过</el-button>
+                  <el-button size="small" type="danger" plain @click="reject(s.row)">驳回</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+            <el-empty v-else-if="!oLoading" description="暂无待审核申请" :image-size="60"></el-empty>
+          </div>
+        </div>
+
+        <!-- 租户审核 -->
+        <div class="card" v-else-if="view === 'tenants'" v-loading="loading">
+          <div class="toolbar">
+            <el-radio-group v-model="status" @change="function () { q.page = 1; load(); }">
+              <el-radio-button value="pending">待审核</el-radio-button>
+              <el-radio-button value="active">已开通</el-radio-button>
+              <el-radio-button value="rejected">已驳回</el-radio-button>
+              <el-radio-button value="suspended">已停用</el-radio-button>
+              <el-radio-button value="">全部</el-radio-button>
+            </el-radio-group>
+            <el-input v-model="q.keyword" placeholder="企业名 / 租户代码 / 联系人" clearable style="width:240px"
+              @keyup.enter="function () { q.page = 1; load(); }"
+              @clear="function () { q.page = 1; load(); }"></el-input>
+            <el-button type="primary" plain @click="function () { q.page = 1; load(); }">查询</el-button>
+            <el-button @click="resetTenantFilter">重置</el-button>
+          </div>
+          <el-table :data="rows">
+            <el-table-column prop="id" label="ID" width="70"></el-table-column>
+            <el-table-column prop="code" label="租户代码" width="120"></el-table-column>
+            <el-table-column prop="name" label="企业名称" min-width="170"></el-table-column>
+            <el-table-column prop="plan_name" label="套餐" width="140"></el-table-column>
+            <el-table-column label="隔离档" width="150">
+              <template #default="s">{{ s.row.mode === 'dedicated' ? ('独享 ' + (s.row.db_name || ('qingguan_t_' + s.row.code))) : '共享库' }}</template>
+            </el-table-column>
+            <el-table-column label="有效期" width="210">
+              <template #default="s"><el-tag :type="expiryState(s.row).type">{{ expiryState(s.row).label }}</el-tag></template>
+            </el-table-column>
+            <el-table-column label="联系人" min-width="150">
+              <template #default="s">{{ s.row.contact_name }} {{ s.row.contact_phone || s.row.contact_email }}</template>
+            </el-table-column>
+            <el-table-column prop="admin_username" label="管理员" width="100"></el-table-column>
+            <el-table-column prop="applied_at" label="申请时间" width="160"></el-table-column>
+            <el-table-column label="状态" width="90">
+              <template #default="s"><el-tag :type="tagType(s.row.status)">{{ statusText(s.row.status) }}</el-tag></template>
+            </el-table-column>
+            <el-table-column label="操作" width="200" fixed="right">
+              <template #default="s">
+                <template v-if="s.row.status === 'pending'">
+                  <el-button size="small" type="primary" @click="approve(s.row)">通过</el-button>
+                  <el-button size="small" type="danger" plain @click="reject(s.row)">驳回</el-button>
+                </template>
+                <template v-if="s.row.status === 'active'">
+                  <el-button size="small" plain @click="resetPwd(s.row)">重置密码</el-button>
+                  <el-dropdown trigger="click" @command="function (c) { tenantMore(s.row, c); }">
+                    <el-button size="small" plain>更多<el-icon><component :is="'ArrowDown'"></component></el-icon></el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="suspend">停用</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </template>
+                <el-button v-if="s.row.status === 'suspended'" size="small" type="success" plain @click="enable(s.row)">启用</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-pagination class="pager" layout="total, prev, pager, next"
+            :total="total" :page-size="q.pageSize" :current-page="q.page"
+            @current-change="function (p) { q.page = p; load(); }"></el-pagination>
+        </div>
+
+        <!-- 收款信息 -->
+        <div class="card" v-if="view === 'bills'" v-loading="!noticeLoaded">
+          <div class="card-title">收款信息</div>
+          <div class="muted" style="margin-bottom:8px">收款信息（租户「账单中心」展示，保存后即时生效；留空保存表示清空该项，租户端回落到系统默认提示）</div>
+          <el-input type="textarea" v-model="noticeDraft" :rows="3" placeholder="对公账户、开户行、账号、汇款备注要求"></el-input>
+          <div class="toolbar toolbar-actions">
+            <el-button size="small" type="primary" :loading="noticeSaving" :disabled="!noticeLoaded" @click="saveNotice">保存收款信息</el-button>
+          </div>
+        </div>
+
+        <!-- 账单 -->
+        <div class="card" v-if="view === 'bills'" v-loading="bLoading">
+          <div class="toolbar">
+            <el-select v-model="bStatus" placeholder="全部状态" clearable style="width:140px"
+              @change="function () { bq.page = 1; loadBills(); }">
+              <el-option value="unpaid" label="待支付"></el-option>
+              <el-option value="paid" label="已支付"></el-option>
+              <el-option value="void" label="已作废"></el-option>
+            </el-select>
+            <el-input v-model="bTenant" placeholder="按租户代码过滤" clearable style="width:200px"
+              @keyup.enter="function () { bq.page = 1; loadBills(); }"
+              @clear="function () { bq.page = 1; loadBills(); }"></el-input>
+            <el-button type="primary" plain @click="function () { bq.page = 1; loadBills(); }">查询</el-button>
+          </div>
+          <el-table :data="bRows">
+            <el-table-column prop="id" label="账单号" width="90"></el-table-column>
+            <el-table-column label="租户" min-width="170">
+              <template #default="s">{{ s.row.tenant_code ? (s.row.tenant_code + ' · ' + s.row.tenant_name) : '—' }}</template>
+            </el-table-column>
+            <el-table-column label="周期" width="80">
+              <template #default="s">{{ s.row.cycle === 'month' ? '月付' : '年付' }}</template>
+            </el-table-column>
+            <el-table-column label="金额" width="100">
+              <template #default="s">¥{{ s.row.amount }}</template>
+            </el-table-column>
+            <el-table-column label="状态" width="90">
+              <template #default="s">
+                <el-tag :type="{ unpaid: 'warning', paid: 'success', void: 'info' }[s.row.status] || 'info'">
+                  {{ { unpaid: '待支付', paid: '已支付', void: '已作废' }[s.row.status] || s.row.status }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="created_at" label="生成时间" width="160"></el-table-column>
+            <el-table-column prop="paid_at" label="支付时间" width="160">
+              <template #default="s">{{ s.row.paid_at || '—' }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="170" fixed="right">
+              <template #default="s">
+                <template v-if="s.row.status === 'unpaid'">
+                  <el-button size="small" type="primary" @click="confirmBill(s.row)">确认收款</el-button>
+                  <el-button size="small" type="danger" plain @click="voidBill(s.row)">作废</el-button>
+                </template>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-pagination class="pager" layout="total, prev, pager, next"
+            :total="bTotal" :page-size="bq.pageSize" :current-page="bq.page"
+            @current-change="function (p) { bq.page = p; loadBills(); }"></el-pagination>
+        </div>
+
+        <!-- 审计日志 -->
+        <div class="card" v-else-if="view === 'audits'" v-loading="aLoading">
+          <div class="toolbar">
+            <el-select v-model="aAction" placeholder="全部动作" clearable style="width:170px"
+              @change="function () { aq.page = 1; loadAudits(); }">
+              <el-option v-for="a in auditActions" :key="a" :value="a" :label="auditText(a)"></el-option>
+            </el-select>
+            <el-input v-model="aTenant" placeholder="按租户代码过滤" clearable style="width:200px"
+              @keyup.enter="function () { aq.page = 1; loadAudits(); }"
+              @clear="function () { aq.page = 1; loadAudits(); }"></el-input>
+            <el-button type="primary" plain @click="function () { aq.page = 1; loadAudits(); }">查询</el-button>
+          </div>
+          <el-table :data="aRows" :row-class-name="auditRowClass">
+            <el-table-column prop="created_at" label="时间" width="160"></el-table-column>
+            <el-table-column label="动作" width="170">
+              <template #default="s"><el-tag :type="auditTag(s.row.action)">{{ auditText(s.row.action) }}</el-tag></template>
+            </el-table-column>
+            <el-table-column label="租户" min-width="170">
+              <template #default="s">{{ s.row.tenant_code ? (s.row.tenant_code + ' · ' + s.row.tenant_name) : '—' }}</template>
+            </el-table-column>
+            <el-table-column label="操作人" width="110">
+              <template #default="s">{{ s.row.operator || '申请人' }}</template>
+            </el-table-column>
+            <el-table-column prop="detail" label="详情" min-width="260" show-overflow-tooltip></el-table-column>
+            <el-table-column prop="ip" label="IP" width="130"></el-table-column>
+          </el-table>
+          <el-pagination class="pager" layout="total, prev, pager, next"
+            :total="aTotal" :page-size="aq.pageSize" :current-page="aq.page"
+            @current-change="function (p) { aq.page = p; loadAudits(); }"></el-pagination>
+        </div>
+
+        <!-- 平台账号 -->
+        <div class="card" v-else-if="view === 'accounts'" v-loading="accLoading">
+          <div class="toolbar">
+            <el-input v-model="accKw" placeholder="账号 / 姓名 / 邮箱" clearable style="width:240px"></el-input>
+            <div class="spacer"></div>
+            <el-button type="primary" @click="openAccount">新增账号</el-button>
+          </div>
+          <el-table :data="accShown">
+            <el-table-column prop="id" label="ID" width="70"></el-table-column>
+            <el-table-column prop="username" label="账号" width="180">
+              <template #default="s">
+                {{ s.row.username }}
+                <el-tag v-if="s.row.id === meId" size="small" type="warning" style="margin-left:6px">当前账号</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="real_name" label="姓名" width="120"></el-table-column>
+            <el-table-column prop="email" label="邮箱" min-width="160"></el-table-column>
+            <el-table-column label="状态" width="90">
+              <template #default="s">
+                <el-tag :type="s.row.status === 1 ? 'success' : 'info'">{{ s.row.status === 1 ? '启用' : '停用' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="last_login_at" label="最近登录" width="160">
+              <template #default="s">{{ s.row.last_login_at || '—' }}</template>
+            </el-table-column>
+            <el-table-column prop="created_at" label="创建时间" width="160"></el-table-column>
+            <el-table-column label="操作" width="230" fixed="right">
+              <template #default="s">
+                <template v-if="s.row.status === 1">
+                  <el-button v-if="s.row.id !== meId" size="small" type="warning" plain @click="accountDisable(s.row)">停用</el-button>
+                </template>
+                <template v-else>
+                  <el-button size="small" type="success" plain @click="accountEnable(s.row)">启用</el-button>
+                </template>
+                <el-button size="small" type="primary" plain @click="accountReset(s.row)">重置密码</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+
+      </div>
     </div>
-    <el-table :data="aRows" :row-class-name="auditRowClass">
-      <el-table-column prop="created_at" label="时间" width="160"></el-table-column>
-      <el-table-column label="动作" width="170">
-        <template #default="s"><el-tag :type="auditTag(s.row.action)">{{ auditText(s.row.action) }}</el-tag></template>
-      </el-table-column>
-      <el-table-column label="租户" min-width="170">
-        <template #default="s">{{ s.row.tenant_code ? (s.row.tenant_code + ' · ' + s.row.tenant_name) : '—' }}</template>
-      </el-table-column>
-      <el-table-column label="操作人" width="110">
-        <template #default="s">{{ s.row.operator || '申请人' }}</template>
-      </el-table-column>
-      <el-table-column prop="detail" label="详情" min-width="260" show-overflow-tooltip></el-table-column>
-      <el-table-column prop="ip" label="IP" width="130"></el-table-column>
-    </el-table>
-    <el-pagination style="margin-top:12px;justify-content:flex-end" layout="total, prev, pager, next"
-      :total="aTotal" :page-size="aq.pageSize" :current-page="aq.page"
-      @current-change="function (p) { aq.page = p; loadAudits(); }"></el-pagination>
   </div>
-  <div class="card" v-else-if="view === 'bills'" v-loading="bLoading">
-    <div style="margin-bottom:12px">
-      <div style="margin-bottom:6px;color:#909399">收款信息（租户「账单中心」展示，保存后即时生效；留空保存表示清空该项，租户端回落到系统默认提示）</div>
-      <el-input type="textarea" v-model="noticeDraft" :rows="3" placeholder="对公账户、开户行、账号、汇款备注要求"></el-input>
-      <el-button size="small" type="primary" style="margin-top:6px" :loading="noticeSaving" :disabled="!noticeLoaded" @click="saveNotice">保存收款信息</el-button>
-    </div>
-    <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
-      <el-select v-model="bStatus" placeholder="全部状态" clearable style="width:140px"
-        @change="function () { bq.page = 1; loadBills(); }">
-        <el-option value="unpaid" label="待支付"></el-option>
-        <el-option value="paid" label="已支付"></el-option>
-        <el-option value="void" label="已作废"></el-option>
-      </el-select>
-      <el-input v-model="bTenant" placeholder="按租户代码过滤" clearable style="width:180px"
-        @keyup.enter="function () { bq.page = 1; loadBills(); }"
-        @clear="function () { bq.page = 1; loadBills(); }"></el-input>
-      <el-button type="primary" plain @click="function () { bq.page = 1; loadBills(); }">查询</el-button>
-    </div>
-    <el-table :data="bRows">
-      <el-table-column prop="id" label="账单号" width="90"></el-table-column>
-      <el-table-column label="租户" min-width="170">
-        <template #default="s">{{ s.row.tenant_code ? (s.row.tenant_code + ' · ' + s.row.tenant_name) : '—' }}</template>
-      </el-table-column>
-      <el-table-column label="周期" width="80">
-        <template #default="s">{{ s.row.cycle === 'month' ? '月付' : '年付' }}</template>
-      </el-table-column>
-      <el-table-column label="金额" width="100">
-        <template #default="s">¥{{ s.row.amount }}</template>
-      </el-table-column>
-      <el-table-column label="状态" width="90">
-        <template #default="s">
-          <el-tag :type="{ unpaid: 'warning', paid: 'success', void: 'info' }[s.row.status] || 'info'">
-            {{ { unpaid: '待支付', paid: '已支付', void: '已作废' }[s.row.status] || s.row.status }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column prop="created_at" label="生成时间" width="160"></el-table-column>
-      <el-table-column prop="paid_at" label="支付时间" width="160">
-        <template #default="s">{{ s.row.paid_at || '—' }}</template>
-      </el-table-column>
-      <el-table-column label="操作" width="170" fixed="right">
-        <template #default="s">
-          <template v-if="s.row.status === 'unpaid'">
-            <el-button size="small" type="primary" @click="confirmBill(s.row)">确认收款</el-button>
-            <el-button size="small" type="danger" plain @click="voidBill(s.row)">作废</el-button>
-          </template>
-        </template>
-      </el-table-column>
-    </el-table>
-    <el-pagination style="margin-top:12px;justify-content:flex-end" layout="total, prev, pager, next"
-      :total="bTotal" :page-size="bq.pageSize" :current-page="bq.page"
-      @current-change="function (p) { bq.page = p; loadBills(); }"></el-pagination>
-  </div>
-  <div class="card" v-else-if="view === 'accounts'" v-loading="accLoading">
-    <div style="margin-bottom:12px">
-      <el-button type="primary" @click="openAccount">新增账号</el-button>
-    </div>
-    <el-table :data="accRows">
-      <el-table-column prop="id" label="ID" width="70"></el-table-column>
-      <el-table-column prop="username" label="账号" width="180">
-        <template #default="s">
-          {{ s.row.username }}
-          <el-tag v-if="s.row.id === meId" size="small" type="warning" style="margin-left:6px">当前账号</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column prop="real_name" label="姓名" width="120"></el-table-column>
-      <el-table-column prop="email" label="邮箱" min-width="160"></el-table-column>
-      <el-table-column label="状态" width="90">
-        <template #default="s">
-          <el-tag :type="s.row.status === 1 ? 'success' : 'info'">{{ s.row.status === 1 ? '启用' : '停用' }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column prop="last_login_at" label="最近登录" width="160">
-        <template #default="s">{{ s.row.last_login_at || '—' }}</template>
-      </el-table-column>
-      <el-table-column prop="created_at" label="创建时间" width="160"></el-table-column>
-      <el-table-column label="操作" width="230" fixed="right">
-        <template #default="s">
-          <template v-if="s.row.status === 1">
-            <el-button v-if="s.row.id !== meId" size="small" type="warning" plain @click="accountDisable(s.row)">停用</el-button>
-          </template>
-          <template v-else>
-            <el-button size="small" type="success" plain @click="accountEnable(s.row)">启用</el-button>
-          </template>
-          <el-button size="small" type="primary" plain @click="accountReset(s.row)">重置密码</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
-  </div>
+
   <el-dialog v-model="accVisible" title="新增平台账号" width="420px">
     <el-form label-width="90px">
       <el-form-item label="账号" required><el-input v-model="accForm.username" placeholder="3-30 位字母、数字或下划线"></el-input></el-form-item>
@@ -209,12 +336,42 @@
     </template>
   </el-dialog>
 </div>
-</div>
 <style>
   .el-table .audit-fail-row td.el-table__cell { background: #fef0f0; }
   .qg-copy-btn { padding: 5px 12px; border: 1px solid #409eff; background: #ecf5ff; color: #409eff;
     border-radius: 4px; cursor: pointer; font-size: 13px; }
   .qg-copy-btn:hover { background: #409eff; color: #fff; }
+
+  /* ---------- 平台管理专用 ---------- */
+  .view-overview .stat-grid{grid-template-columns:repeat(4,1fr);margin-bottom:14px}
+  .stat-card.stat-click{cursor:pointer;transition:border-color .15s,box-shadow .15s}
+  .stat-card.stat-click:hover{border-color:#a9c7e8;box-shadow:0 3px 12px rgba(47,111,179,.10)}
+  .stat-card .num .unit{font-size:13px;font-weight:400;color:#8b949e;margin-left:4px}
+  .stat-card .hint{color:#8b949e;font-size:12px;margin-top:6px}
+
+  .stat-mini{
+    display:flex;flex-wrap:wrap;gap:10px 26px;background:#fff;border:1px solid var(--qg-border);
+    border-radius:10px;padding:12px 18px;margin-bottom:14px;color:#5b6470;font-size:13px;
+  }
+  .stat-mini b{color:#1f2328;font-size:15px;font-weight:600;margin-left:6px}
+
+  .side-badge{
+    margin-left:auto;background:#e6811a;color:#fff;border-radius:9px;padding:0 7px;
+    font-size:11px;line-height:18px;height:18px;flex:none;
+  }
+  .sidebar.collapsed .side-badge{display:none}
+
+  .toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
+  .toolbar .spacer{flex:1}
+  .toolbar-actions{justify-content:flex-end;margin:8px 0 0}
+  .pager{margin-top:12px;display:flex;justify-content:flex-end}
+
+  @media (max-width:1200px){
+    .view-overview .stat-grid{grid-template-columns:repeat(2,1fr)}
+  }
+  @media (max-width:760px){
+    .view-overview .stat-grid{grid-template-columns:1fr}
+  }
 </style>
 <script>window.QG_LOGIN_URL = '/admin-login.html';</script>
 <script>
@@ -250,13 +407,14 @@ QG.mount(function () {
   return {
     data: function () {
       return {
-        rows: [], total: 0, loading: false, status: 'pending', q: { page: 1, pageSize: 20 },
-        view: 'tenants',
+        view: 'overview', menuCollapsed: false,
+        me: {}, meId: 0,
+        sum: {}, sumLoaded: false, oLoading: false, pendingRows: [],
+        rows: [], total: 0, loading: false, status: 'pending', q: { page: 1, pageSize: 20, keyword: '' },
         aRows: [], aTotal: 0, aLoading: false, aAction: '', aTenant: '', aq: { page: 1, pageSize: 20 },
         bRows: [], bTotal: 0, bLoading: false, bStatus: '', bTenant: '', bq: { page: 1, pageSize: 20 },
-        accRows: [], accLoading: false, accVisible: false, accSaving: false,
+        accRows: [], accLoading: false, accKw: '', accVisible: false, accSaving: false,
         accForm: { username: '', real_name: '', email: '' },
-        meId: 0,
         noticeDraft: '', noticeSaving: false, noticeLoaded: false,
         pwdVisible: false, pwdForce: false, saving: false,
         pwdForm: { old_password: '', new_password: '', confirm: '' },
@@ -264,36 +422,116 @@ QG.mount(function () {
           'admin_reset', 'account_create', 'account_disable', 'account_enable', 'account_reset', 'account_password', 'setting_update']
       };
     },
+    computed: {
+      viewTitle: function () {
+        return { overview: '概览', tenants: '租户审核', bills: '账单', audits: '审计日志', accounts: '账号' }[this.view] || '概览';
+      },
+      pendingCount: function () {
+        return this.sumLoaded ? (this.sum.pending || 0) : 0;
+      },
+      /* 账号列表的关键词过滤是纯前端的：平台账号量级极小，不必为一个输入框加服务端参数 */
+      accShown: function () {
+        var kw = (this.accKw || '').trim().toLowerCase();
+        if (!kw) { return this.accRows; }
+        return this.accRows.filter(function (r) {
+          var s = ((r.username || '') + ' ' + (r.real_name || '') + ' ' + (r.email || '')).toLowerCase();
+          return s.indexOf(kw) >= 0;
+        });
+      }
+    },
     created: function () {
       var self = this;
       /* 先探明会话：单 cookie 双 scope，租户令牌调平台接口一律 403（两边令牌互不通用），
          与其每个操作都弹错，不如直接送去平台登录页。未登录的 401 由 common.js 自动跳 admin-login。 */
       QG.get('/platform/me').then(function (u) {
+        self.me = u || {};
         self.meId = (u && u.id) || 0;
         if (u && u.must_change_password) {
           self.pwdForce = true;
           self.pwdForm = { old_password: '', new_password: '', confirm: '' };
           self.pwdVisible = true;
         }
-        self.load();
+        self.loadOverview();
       }).catch(function (e) {
         if (e && e.code === 403) { location.href = '/admin-login.html'; return; }
         QG.err(e);
       });
     },
     methods: {
+      /* ---------- 视图切换 ---------- */
+      onView: function (index) {
+        this.view = index;
+        if (index === 'overview') { this.loadOverview(); }
+        if (index === 'tenants') { this.q.page = 1; this.load(); }
+        if (index === 'bills') { this.loadBills(); this.loadNotice(); }
+        if (index === 'audits') { this.loadAudits(); }
+        if (index === 'accounts') { this.loadAccounts(); }
+      },
+      gotoTenants: function (status) {
+        this.view = 'tenants';
+        this.status = status;
+        this.q.keyword = '';
+        this.q.page = 1;
+        this.load();
+      },
+      gotoBills: function (status) {
+        this.view = 'bills';
+        this.bStatus = status;
+        this.bTenant = '';
+        this.bq.page = 1;
+        this.loadBills();
+        this.loadNotice();
+      },
+
+      /* ---------- 概览看板 ---------- */
+      loadOverview: function () {
+        var self = this;
+        self.oLoading = true;
+        QG.get('/platform/summary').then(function (d) {
+          self.sum = d || {};
+          self.sumLoaded = true;
+        }).catch(function (e) { QG.err(e); })
+          .finally(function () { self.oLoading = false; });
+        QG.get('/platform/tenants', { status: 'pending', page: 1, pageSize: 5 })
+          .then(function (d) { self.pendingRows = (d && d.list) || []; })
+          .catch(function (e) { QG.err(e); });
+      },
+      /* 数字卡：拿不到数据一律显示 — ，免得把「没加载出来」看成「真的是 0」 */
+      stat: function (k) {
+        if (!this.sumLoaded) { return '—'; }
+        var v = this.sum[k];
+        return (v === undefined || v === null || v === '') ? '—' : v;
+      },
+      statMoney: function (k) {
+        if (!this.sumLoaded) { return '—'; }
+        return '¥ ' + QG.money(this.sum[k] === undefined ? 0 : this.sum[k]);
+      },
+      /* 租户动作后：概览的待办/待审核数也要跟着变，不然徽标会停在旧数字上 */
+      afterTenantChange: function () {
+        this.loadOverview();
+        if (this.view === 'tenants') { this.load(); }
+      },
+
+      /* ---------- 租户审核 ---------- */
       load: function () {
         var self = this;
         self.loading = true;
-        QG.get('/platform/tenants', { status: self.status, page: self.q.page, pageSize: self.q.pageSize })
+        QG.get('/platform/tenants', {
+          status: self.status, keyword: (self.q.keyword || '').trim(),
+          page: self.q.page, pageSize: self.q.pageSize
+        })
           .then(function (d) { self.rows = d.list || []; self.total = d.total || 0; })
           .catch(function (e) { QG.err(e); })
           .finally(function () { self.loading = false; });
       },
-      onView: function () {
-        if (this.view === 'audits') { this.loadAudits(); }
-        if (this.view === 'bills') { this.loadBills(); this.loadNotice(); }
-        if (this.view === 'accounts') { this.loadAccounts(); }
+      resetTenantFilter: function () {
+        this.status = '';
+        this.q.keyword = '';
+        this.q.page = 1;
+        this.load();
+      },
+      tenantMore: function (row, cmd) {
+        if (cmd === 'suspend') { this.suspend(row); }
       },
       openPwd: function () {
         this.pwdForm = { old_password: '', new_password: '', confirm: '' };
@@ -417,7 +655,7 @@ QG.mount(function () {
         var self = this;
         QG.confirm('确认已收到「' + row.tenant_code + '」' + (row.cycle === 'month' ? '月付' : '年付') + ' ¥' + row.amount + '？确认后服务期立即顺延。').then(function () {
           QG.post('/platform/bills/' + row.id + '/confirm', {})
-            .then(function () { QG.toast('已确认收款'); self.loadBills(); })
+            .then(function () { QG.toast('已确认收款'); self.loadBills(); self.loadOverview(); })
             .catch(function (e) { QG.err(e); });
         }).catch(function () {});
       },
@@ -427,7 +665,7 @@ QG.mount(function () {
           inputPattern: /\S+/, inputErrorMessage: '原因不能为空'
         }).then(function (r) {
           QG.post('/platform/bills/' + row.id + '/void', { reason: r.value })
-            .then(function () { QG.toast('已作废'); self.loadBills(); })
+            .then(function () { QG.toast('已作废'); self.loadBills(); self.loadOverview(); })
             .catch(function (e) { QG.err(e); });
         }).catch(function () {});
       },
@@ -473,7 +711,7 @@ QG.mount(function () {
           : '确定通过「' + row.name + '」？将立即播种默认数据并创建管理员 ' + row.admin_username + '。未付款前为 30 天试用期，可随时在账单中心续费。';
         QG.confirm(tip).then(function () {
           QG.post('/platform/tenants/' + row.id + '/approve', {})
-            .then(function () { QG.toast('已开通'); self.load(); })
+            .then(function () { QG.toast('已开通'); self.afterTenantChange(); })
             .catch(function (e) { QG.err(e); });
         }).catch(function () {});
       },
@@ -484,7 +722,7 @@ QG.mount(function () {
           inputValidator: function (v) { return (v || '').length > 200 ? '不能超过 200 字' : true; }
         }).then(function (r) {
           QG.post('/platform/tenants/' + row.id + '/reject', { reason: r.value })
-            .then(function () { QG.toast('已驳回'); self.load(); })
+            .then(function () { QG.toast('已驳回'); self.afterTenantChange(); })
             .catch(function (e) { QG.err(e); });
         }).catch(function () {});
       },
@@ -492,21 +730,21 @@ QG.mount(function () {
         var self = this;
         QG.confirm('确定停用「' + row.name + '」？其用户将无法登录。').then(function () {
           QG.post('/platform/tenants/' + row.id + '/suspend', {})
-            .then(function () { QG.toast('已停用'); self.load(); })
+            .then(function () { QG.toast('已停用'); self.afterTenantChange(); })
             .catch(function (e) { QG.err(e); });
         }).catch(function () {});
       },
       enable: function (row) {
         var self = this;
         QG.post('/platform/tenants/' + row.id + '/enable', {})
-          .then(function () { QG.toast('已启用'); self.load(); })
+          .then(function () { QG.toast('已启用'); self.afterTenantChange(); })
           .catch(function (e) { QG.err(e); });
       },
       resetPwd: function (row) {
         var self = this;
         QG.confirm('将为「' + row.code + '」的管理员 ' + row.admin_username + ' 生成新的临时密码，旧密码立即失效，客户首登须修改。继续？').then(function () {
           QG.post('/platform/tenants/' + row.id + '/reset-admin-password', {})
-            .then(function (d) { self.showTempPassword(d.temp_password, row.admin_username); self.load(); })
+            .then(function (d) { self.showTempPassword(d.temp_password, row.admin_username); self.afterTenantChange(); })
             .catch(function (e) { QG.err(e); });
         }).catch(function () {});
       },
