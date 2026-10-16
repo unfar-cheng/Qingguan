@@ -107,6 +107,11 @@ class Auth
             self::$user = [];
             return null;
         }
+        if ($t['expires_at'] !== null
+            && \QG\Billing::state($t['expires_at'], true)['state'] === 'expired') {
+            self::$user = [];
+            return null;
+        }
         Tenant::set(['id' => (int) $t['id'], 'mode' => $t['mode'], 'db_name' => $t['db_name'], 'code' => $t['code']]);
 
         $u = UserRepo::findWithRole((int) $payload['uid']);
@@ -119,6 +124,7 @@ class Auth
         $u['tenant_code'] = $t['code'];
         $u['tenant_name'] = $t['name'];
         $u['tenant_logo'] = $t['logo_url'];
+        $u['expires_at']  = $t['expires_at'];
         self::$user = $u;
         return $u;
     }

@@ -46,12 +46,12 @@ class TenantProvisioner
         // 专用档同时回写 db_name（失败重试时它是空的，成功才落）。
         if ($mode === 'shared') {
             $n = ControlDb::exec(
-                "UPDATE saas_tenant SET status = 'active', reviewed_at = NOW(), reviewed_by = ?, admin_password_hash = '', reject_reason = '' WHERE id = ? AND status = 'pending'",
+                "UPDATE saas_tenant SET status = 'active', expires_at = NOW(), reviewed_at = NOW(), reviewed_by = ?, admin_password_hash = '', reject_reason = '' WHERE id = ? AND status = 'pending'",
                 [$platformUserId, $tid]
             );
         } else {
             $n = ControlDb::exec(
-                "UPDATE saas_tenant SET status = 'active', db_name = ?, reviewed_at = NOW(), reviewed_by = ?, admin_password_hash = '', reject_reason = '' WHERE id = ? AND status = 'pending'",
+                "UPDATE saas_tenant SET status = 'active', db_name = ?, expires_at = NOW(), reviewed_at = NOW(), reviewed_by = ?, admin_password_hash = '', reject_reason = '' WHERE id = ? AND status = 'pending'",
                 [$dbName, $platformUserId, $tid]
             );
         }
