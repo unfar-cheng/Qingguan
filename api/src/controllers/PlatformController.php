@@ -171,6 +171,10 @@ class PlatformController
         if ($n === 0) {
             Response::fail('租户状态已变化，请刷新后重试');
         }
+        ControlDb::exec(
+            "UPDATE saas_bill SET status = 'void', void_reason = '注册申请被驳回' WHERE tenant_id = ? AND status = 'unpaid'",
+            [(int) $t['id']]
+        );
         self::audit((int) $admin['id'], 'reject', (int) $t['id'], $reason);
         Response::ok(null, '已驳回');
     }

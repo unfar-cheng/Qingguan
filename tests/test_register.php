@@ -25,7 +25,7 @@ t('租户代码可用性校验：demo 已占用、非法格式被拒', function 
 t('注册校验：密码太短 / 联系方式全空 / 重复代码 被拒', function () {
     if (!qg_site_up()) { return; }
     $base = ['name' => '校验测试', 'code' => 'chk' . substr(md5(uniqid()), 0, 8),
-        'contact_name' => '张三', 'admin_username' => 'boss', 'plan_id' => 1];
+        'contact_name' => '张三', 'admin_username' => 'boss', 'plan_id' => 1, 'bill_cycle' => 'year'];
     $r = qg_post_json('/api/tenant/register', $base + ['contact_phone' => '13800000000', 'password' => 'short']);
     assert_contains($r, '密码至少 8 位', '短密码应被拒：' . $r);
     $r = qg_post_json('/api/tenant/register', $base + ['password' => 'LongEnough1']);
@@ -40,7 +40,7 @@ t('合法注册落 pending，且登录提示审核中', function () {
     $r = qg_post_json('/api/tenant/register', [
         'name' => '注册测试企业', 'code' => $code, 'contact_name' => '李四',
         'contact_email' => 'test@example.com', 'admin_username' => 'boss',
-        'password' => 'RegPass123', 'plan_id' => 1,
+        'password' => 'RegPass123', 'plan_id' => 1, 'bill_cycle' => 'year',
     ]);
     assert_contains($r, '"code":0', '注册应成功：' . $r);
     $row = ControlDb::one('SELECT * FROM saas_tenant WHERE code = ?', [$code]);
@@ -48,7 +48,11 @@ t('合法注册落 pending，且登录提示审核中', function () {
     assert_true(password_verify('RegPass123', $row['admin_password_hash']), '密码应已哈希暂存');
     $r = qg_post_json('/api/auth/login', ['tenant' => $code, 'username' => 'boss', 'password' => 'RegPass123']);
     assert_contains($r, '审核中', 'pending 租户登录应提示审核中：' . $r);
+    $b = ControlDb::one('SELECT cycle, amount, status, remark FROM saas_bill WHERE tenant_id = ? ORDER BY id DESC LIMIT 1', [(int) $row['id']]);
+    assert_eq('year', $b['cycle'] ?? '', '注册应生成第一张账单');
+    assert_eq('unpaid', $b['status'] ?? '', '首张账单待支付');
     // 清理
+    ControlDb::exec('DELETE FROM saas_bill WHERE tenant_id = ?', [(int) $row['id']]);
     ControlDb::exec('DELETE FROM saas_audit WHERE target_type = ? AND target_id = ?', ['tenant', (int) $row['id']]);
     ControlDb::exec('DELETE FROM saas_tenant WHERE id = ?', [(int) $row['id']]);
 });

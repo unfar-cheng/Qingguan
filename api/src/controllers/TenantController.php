@@ -85,6 +85,10 @@ class TenantController
         if (strlen($password) > 72) {
             Response::fail('密码最长 72 位');
         }
+        $cycle = Req::str('bill_cycle');
+        if (!in_array($cycle, ['month', 'year'], true)) {
+            Response::fail('请选择付费周期');
+        }
         $planId = Req::int('plan_id');
         $plan = ControlDb::one('SELECT * FROM saas_plan WHERE id = ? AND status = 1 LIMIT 1', [$planId]);
         if (!$plan) {
@@ -106,6 +110,7 @@ class TenantController
                 'admin_username'      => $adminUsername,
                 'admin_password_hash' => password_hash($password, PASSWORD_DEFAULT),
                 'applied_at'          => App::now(),
+                'bill_cycle'          => $cycle,
             ]);
         } catch (PDOException $e) {
             // 并发注册同 code：预检查与插入之间撞 saas_tenant.uk_code（23000），转友好报错（参照 PlatformController::approve 的并发兜底先例）。
@@ -121,6 +126,12 @@ class TenantController
             'target_id'        => $id,
             'detail'           => json_encode(['code' => $code, 'name' => $name, 'plan' => $plan['code']], JSON_UNESCAPED_UNICODE),
             'ip'               => App::ip(),
+        ]);
+        $priceCol = $cycle === 'month' ? 'price_month' : 'price_year';
+        $amount = (float) ControlDb::val("SELECT {$priceCol} FROM saas_plan WHERE id = ?", [$planId]);
+        ControlDb::insert('saas_bill', [
+            'tenant_id' => $id, 'cycle' => $cycle, 'amount' => $amount,
+            'status' => 'unpaid', 'remark' => '注册账单',
         ]);
         Response::ok(['id' => $id], '申请已提交，审核通过后即可登录');
     }

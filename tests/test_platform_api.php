@@ -130,7 +130,7 @@ t('审核端到端：注册→approve→新租户管理员可登录→重复 app
     $r = qg_post_json('/api/tenant/register', [
         'name' => '端到端测试企业', 'code' => $code, 'contact_name' => '测试',
         'contact_phone' => '13800000000', 'admin_username' => 'boss',
-        'password' => 'E2ePass123', 'plan_id' => 1,
+        'password' => 'E2ePass123', 'plan_id' => 1, 'bill_cycle' => 'year',
     ]);
     assert_contains($r, '"code":0', '注册应成功：' . $r);
     $tid = (int) ControlDb::val('SELECT id FROM saas_tenant WHERE code = ?', [$code]);
@@ -154,6 +154,7 @@ t('审核端到端：注册→approve→新租户管理员可登录→重复 app
     foreach (['sys_user', 'sys_role_permission', 'sys_role', 'sys_permission', 'sys_config', 'sys_dict', 'sys_log'] as $tb) {
         $pdo->exec("DELETE FROM {$tb} WHERE tenant_id = " . $tid);
     }
+    ControlDb::exec('DELETE FROM saas_bill WHERE tenant_id = ?', [$tid]);
     ControlDb::exec('DELETE FROM saas_audit WHERE target_type = ? AND target_id = ?', ['tenant', $tid]);
     ControlDb::exec('DELETE FROM saas_tenant WHERE id = ?', [$tid]);
     @unlink($jar);

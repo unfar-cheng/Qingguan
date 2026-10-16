@@ -46,6 +46,13 @@
               </div>
             </div>
           </el-form-item>
+          <el-form-item label="付费周期" required>
+            <el-radio-group v-model="form.bill_cycle">
+              <el-radio-button value="year">年付</el-radio-button>
+              <el-radio-button value="month">月付</el-radio-button>
+            </el-radio-group>
+            <div style="font-size:12px;color:#909399">审核通过后开始计费；未付款前有 30 天试用期</div>
+          </el-form-item>
           <el-form-item>
             <el-button type="primary" size="large" :loading="loading" @click="submit">提交申请</el-button>
             <el-button size="large" @click="location.href = '/login.html'">返回登录</el-button>
@@ -72,7 +79,7 @@ QG.mount(function () {
     data: function () {
       return {
         form: { name: '', code: '', contact_name: '', contact_phone: '', contact_email: '',
-                admin_username: '', password: '', password2: '', plan_id: 0 },
+                admin_username: '', password: '', password2: '', plan_id: 0, 'bill_cycle': 'year' },
         plans: [], codeOk: false, codeMsg: '', checkedCode: '', loading: false, done: false
       };
     },
@@ -110,6 +117,7 @@ QG.mount(function () {
         if (f.password.length > 72) { return QG.warn('密码过长'); }
         if (f.password !== f.password2) { return QG.warn('两次输入的密码不一致'); }
         if (!f.plan_id) { return QG.warn('请选择套餐'); }
+        if (!f.bill_cycle) { return QG.warn('请选择付费周期'); }
         if (self.checkedCode !== (f.code || '').trim().toLowerCase()) {
           self.checkCode();
           return QG.warn('租户代码已修改，请确认可用后再提交');
