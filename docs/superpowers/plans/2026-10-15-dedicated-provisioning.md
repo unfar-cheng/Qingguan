@@ -1,6 +1,6 @@
 # 二期专用档（dedicated）自动开通 实现计划
 
-> **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [ ]`）语法来跟踪进度。
+> **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [x]`）语法来跟踪进度。
 
 **目标：** 平台超管点「通过」后全自动完成专用档开通：建库 `qingguan_t_<code>`、建租户专属账号 `qg_<code>`（HMAC 派生密码，不落库）、灌 schema 播种、建管理员、控制面翻 active；另带一个最小迁移扇出脚本。
 
@@ -47,7 +47,7 @@
 - 修改：`api/src/App.php`（`config()` 方法后新增一个方法）
 - 修改：`api/config/config.sample.php`
 
-- [ ] **步骤 1.1：写失败的测试**
+- [x] **步骤 1.1：写失败的测试**
 
 创建 `tests/test_dedicated_db.php`（全文）：
 
@@ -124,12 +124,12 @@ t('Tenant::pdo 专用档：带 code 时走派生凭据连接（不存在的库�
 });
 ```
 
-- [ ] **步骤 1.2：运行测试验证失败**
+- [x] **步骤 1.2：运行测试验证失败**
 
 运行：`php83 tests/run.php 2>&1 | tail -8`
 预期：`test_dedicated_db.php` 的新用例 FAIL（类不存在，autoload 落空 → PHP Error「Class "QG\DedicatedDb" not found」）。
 
-- [ ] **步骤 1.3：实现**
+- [x] **步骤 1.3：实现**
 
 创建 `api/src/DedicatedDb.php`（全文）：
 
@@ -214,12 +214,12 @@ class DedicatedDb
     ],
 ```
 
-- [ ] **步骤 1.4：运行测试验证通过**
+- [x] **步骤 1.4：运行测试验证通过**
 
 运行：`php83 tests/run.php 2>&1 | tail -3`
 预期：`66 passed, 0 failed`（60 + 6）。
 
-- [ ] **步骤 1.5：Commit**
+- [x] **步骤 1.5：Commit**
 
 ```bash
 git add tests/test_dedicated_db.php api/src/DedicatedDb.php api/src/App.php api/config/config.sample.php
@@ -234,7 +234,7 @@ git commit -m "feat: DedicatedDb 派生类（专用库名/账号/密码）+ prov
 - 修改：`api/src/Tenant.php:40-60`（`pdo()` 整个方法）
 - 修改：`api/src/Auth.php:110`（`Tenant::set` 补 `code`）
 
-- [ ] **步骤 2.1：改 `Auth::user()` 的租户上下文**
+- [x] **步骤 2.1：改 `Auth::user()` 的租户上下文**
 
 `api/src/Auth.php` 第 110 行：
 
@@ -248,7 +248,7 @@ git commit -m "feat: DedicatedDb 派生类（专用库名/账号/密码）+ prov
         Tenant::set(['id' => (int) $t['id'], 'mode' => $t['mode'], 'db_name' => $t['db_name'], 'code' => $t['code']]);
 ```
 
-- [ ] **步骤 2.2：改 `Tenant::pdo()`**
+- [x] **步骤 2.2：改 `Tenant::pdo()`**
 
 `api/src/Tenant.php` 的 `pdo()` 整个方法替换为：
 
@@ -286,13 +286,13 @@ git commit -m "feat: DedicatedDb 派生类（专用库名/账号/密码）+ prov
     }
 ```
 
-- [ ] **步骤 2.3：运行测试验证通过 + 全量回归**
+- [x] **步骤 2.3：运行测试验证通过 + 全量回归**
 
 运行：`php83 tests/run.php 2>&1 | tail -3 && php83 tests/guard_no_raw_business_sql.php | tail -1`
 预期：`66 passed, 0 failed` + `guard ok`。
 说明：「缺少 code 抛异常」用例在改动前必红（旧实现走共享凭据，抛的是 PDOException），本任务落地后转绿；「带 code 连不存在的库」用例两态都抛 PDOException，它的价值是锁住「专用路径真的尝试派生连接」，真库连通性在任务 7 e2e 验证。
 
-- [ ] **步骤 2.4：Commit**
+- [x] **步骤 2.4：Commit**
 
 ```bash
 git add api/src/Tenant.php api/src/Auth.php
@@ -307,7 +307,7 @@ git commit -m "feat: Tenant::pdo 专用档改派生凭据连接，租户上下�
 - 修改：`api/src/TenantProvisioner.php`（`provision()` 重排 + 新增 `provisionDedicated()`）
 - 修改：`tests/test_provision.php:77-92`（「专用档本期拒绝」用例改写）
 
-- [ ] **步骤 3.1：改写失败用例（TDD 先行）**
+- [x] **步骤 3.1：改写失败用例（TDD 先行）**
 
 `tests/test_provision.php` 第 77-92 行的 `t('专用档本期拒绝开通', ...)` 整块替换为：
 
@@ -338,12 +338,12 @@ t('专用档：未配置 provision_db 时友好拒绝且保持 pending', functio
 });
 ```
 
-- [ ] **步骤 3.2：运行验证失败**
+- [x] **步骤 3.2：运行验证失败**
 
 运行：`php83 tests/run.php 2>&1 | grep -A1 '专用档'`
 预期：该用例 FAIL——现有实现抛「专用档（物理隔离）开通尚未开放，归二期」，消息不含「未配置」。
 
-- [ ] **步骤 3.3：实现 dedicated 分支**
+- [x] **步骤 3.3：实现 dedicated 分支**
 
 `api/src/TenantProvisioner.php` 的 `provision()` 整个方法替换为，并新增私有方法：
 
@@ -462,12 +462,12 @@ t('专用档：未配置 provision_db 时友好拒绝且保持 pending', functio
 
 文件头部 `use` 需要 `QG\DedicatedDb`（同命名空间，无需 use——`TenantProvisioner` 在 `QG` 命名空间下，`DedicatedDb` 也在，直接引用即可，不加 use）。
 
-- [ ] **步骤 3.4：运行测试验证通过**
+- [x] **步骤 3.4：运行测试验证通过**
 
 运行：`php83 tests/run.php 2>&1 | tail -3 && php83 tests/guard_no_raw_business_sql.php | tail -1`
 预期：`66 passed, 0 failed` + `guard ok`（shared 开通用例不受影响；新的「未配置」用例转绿）。
 
-- [ ] **步骤 3.5：Commit**
+- [x] **步骤 3.5：Commit**
 
 ```bash
 git add api/src/TenantProvisioner.php tests/test_provision.php
@@ -482,7 +482,7 @@ git commit -m "feat: 专用档自动开通（幂等建库建账号 + 派生凭�
 - 修改：`api/src/repos/ProvisionRepo.php:76`（方法可见性）
 - 创建：`scripts/migrate_dedicated.php`
 
-- [ ] **步骤 4.1：`splitStatements` 改 public**
+- [x] **步骤 4.1：`splitStatements` 改 public**
 
 `api/src/repos/ProvisionRepo.php` 第 76 行 `private static function splitStatements` 改为 `public static function splitStatements`，并在其 docblock 末尾追加一行：
 
@@ -490,7 +490,7 @@ git commit -m "feat: 专用档自动开通（幂等建库建账号 + 派生凭�
      * 公开给 scripts/migrate_dedicated.php 复用——迁移文件与 schema.sql 遵守同一套切分约定。
 ```
 
-- [ ] **步骤 4.2：写脚本**
+- [x] **步骤 4.2：写脚本**
 
 创建 `scripts/migrate_dedicated.php`（全文）：
 
@@ -566,13 +566,13 @@ foreach ($rows as $r) {
 exit($fail ? 1 : 0);
 ```
 
-- [ ] **步骤 4.3：验证脚本基本行为（无专用库时应空跑）**
+- [x] **步骤 4.3：验证脚本基本行为（无专用库时应空跑）**
 
 运行：`php83 scripts/migrate_dedicated.php db/schema.sql --dry-run && php83 scripts/migrate_dedicated.php db/schema.sql`
 预期：第一行列出（当前 0 个专用库）→ 输出 `没有已开通的专用库，无事可做`，退出码 0。
 再验证缺参：`php83 scripts/migrate_dedicated.php` → 用法提示，退出码 1。
 
-- [ ] **步骤 4.4：全量回归 + Commit**
+- [x] **步骤 4.4：全量回归 + Commit**
 
 运行：`php83 tests/run.php 2>&1 | tail -1`（预期 `66 passed, 0 failed`）
 
@@ -589,7 +589,7 @@ git commit -m "feat: migrate_dedicated 最小迁移扇出脚本（splitStatement
 - 修改：`api/src/controllers/PlatformController.php:76-78`（SELECT 补 `t.db_name`）
 - 修改：`platform.html:32-34`（隔离档列）与 `platform.html:87-89`（approve 弹窗文案）
 
-- [ ] **步骤 5.1：后端 SELECT 补字段**
+- [x] **步骤 5.1：后端 SELECT 补字段**
 
 `PlatformController::tenants()` 的 SELECT 列表（`t.logo_url,` 后）加一列：
 
@@ -597,7 +597,7 @@ git commit -m "feat: migrate_dedicated 最小迁移扇出脚本（splitStatement
                     t.admin_username, t.reject_reason, t.applied_at, t.reviewed_at, t.logo_url, t.db_name,
 ```
 
-- [ ] **步骤 5.2：前端隔离档列**
+- [x] **步骤 5.2：前端隔离档列**
 
 `platform.html` 第 32-34 行：
 
@@ -615,7 +615,7 @@ git commit -m "feat: migrate_dedicated 最小迁移扇出脚本（splitStatement
       </el-table-column>
 ```
 
-- [ ] **步骤 5.3：approve 弹窗文案分流**
+- [x] **步骤 5.3：approve 弹窗文案分流**
 
 `platform.html` 的 `approve` 方法第 88-94 行：
 
@@ -636,7 +636,7 @@ git commit -m "feat: migrate_dedicated 最小迁移扇出脚本（splitStatement
         QG.confirm(tip).then(function () {
 ```
 
-- [ ] **步骤 5.4：验证 + Commit**
+- [x] **步骤 5.4：验证 + Commit**
 
 运行：`php83 tests/run.php 2>&1 | tail -1`（预期 `66 passed, 0 failed`）；浏览器（或 curl）确认 platform.html 已登录时列表正常渲染。
 
@@ -653,7 +653,7 @@ git commit -m "feat: 平台租户列表展示专用库名，审核通过文案�
 - 修改：`version.json`
 - 修改：`AGENTS.md`
 
-- [ ] **步骤 6.1：AGENTS.md 三处更新**
+- [x] **步骤 6.1：AGENTS.md 三处更新**
 
 ① §1 表格「DB」行下补一行（生产列）：
 
@@ -676,7 +676,7 @@ git commit -m "feat: 平台租户列表展示专用库名，审核通过文案�
 9. **`qg_provision` 是高价值凭据但权限收敛**：仅全局 CREATE/CREATE USER + `qingguan_t_%`.* 的 ALL——读不到任何现有业务数据。provision_db 未配置时专用档开通报「未配置」并留 pending，共享档不受影响。专用档租户上下文必须带 `code`（派生凭据用），手工 `Tenant::set` 造 dedicated 上下文而不带 code 会抛「缺少 code」。
 ```
 
-- [ ] **步骤 6.2：version bump（先提交代码再用 HEAD hash）**
+- [x] **步骤 6.2：version bump（先提交代码再用 HEAD hash）**
 
 ```bash
 git add AGENTS.md && git commit -m "docs: AGENTS.md 补专用档开通与运维口径"
@@ -696,7 +696,7 @@ git add version.json && git commit -m "chore: version bump（$BUILD）"
 
 **文件：** 无代码变更；产出验收结论。
 
-- [ ] **步骤 7.1：dev MariaDB 建开通账号**
+- [x] **步骤 7.1：dev MariaDB 建开通账号**
 
 ```bash
 sudo -n mysql -e "
@@ -711,11 +711,11 @@ GRANT ALL PRIVILEGES ON \`qingguan_t_%\`.* TO 'qg_provision'@'127.0.0.1' WITH GR
 FLUSH PRIVILEGES;"
 ```
 
-- [ ] **步骤 7.2：dev config.php 补 `provision_db` 段**
+- [x] **步骤 7.2：dev config.php 补 `provision_db` 段**
 
 手工编辑 `api/config/config.php`（不入库，勿提交），按 `config.sample.php` 任务 1 的段填写 `<dev强密码>`。
 
-- [ ] **步骤 7.3：端到端真跑（含连字符 code 实测）**
+- [x] **步骤 7.3：端到端真跑（含连字符 code 实测）**
 
 1. 浏览器 `https://qingguan-dev.sflswall.com.cn/register.html` 注册：租户代码 **`e2e-dedicated`**（含连字符，规格要求实测）、套餐选「隔离版（独享）」、管理员 `e2ededadmin`、密码自定强密码。
 2. `platform / Platform@12345` 登录 `admin-login.html` → 通过该租户。预期：确认弹窗显示专用库文案；通过后列表「隔离档」列显示 `独享 qingguan_t_e2e-dedicated`。
@@ -739,9 +739,26 @@ DELETE FROM qingguan_control.saas_tenant WHERE code='e2e-dedicated';"
 rm -rf /data/qingguan/app/uploads/t<该租户id>
 ```
 
-- [ ] **步骤 7.4：记录验收结论到本计划文件**（勾选此任务并在末尾追加一行执行记录，含遇到的问题）。
+- [x] **步骤 7.4：记录验收结论到本计划文件**（勾选此任务并在末尾追加一行执行记录，含遇到的问题）。
 
 ---
+
+
+## 执行记录（2026-10-15 ~ 2026-10-16，子代理驱动 + 双重审查）
+
+- 任务 1 `90db536`：DedicatedDb + overrideConfig + config.sample。计划原文测试自相矛盾（name('a_b') 与正则冲突），按控制者裁决改测试侧（下划线保持非法）。65 passed/1 failed（预期失败项归任务 2）。
+- 任务 2 `fe9c36a`+`69f46f8`+`35516c2`+`b503b29`：pdo 派生凭据 + 4 处上下文补 code。实现者发现规格遗漏的两条登录路径（AuthController::login / Auth::login）也缺 code，一并修复；质量审查建议的「code 校验提到池判断之前」与两条测试补强全部落地。67 passed。
+- 任务 3 `e8271e5`+`b139a35`+`c80b0c2`：dedicated 分支。加固：DDL 失败定位助手、PROVISION_HOSTS 常量、播种事务去重（seedInTxn）、provision_db 不可达失败路径用例。68 passed。validate_password 检查项已补进任务 8.2（`6066592`）。
+- 任务 4 `026b495`：migrate_dedicated 脚本（子代理因平台 429 中断后由控制者接手核验：与任务书逐字一致 + smoke 三连）。脚本 dry-run 实测能列出租户 `qingguan_t_e2e-dedicated`。
+- 任务 5 `cf22bc5`+`57db89f`+`159ce34`+`837ba5b`：列表展示库名 + 审核文案分流。计划漏列的旧测试断言翻转（db_name 由「不得出现」改「必须出现」）经控制者批准；隔离档列兜底统一、shared 文案对齐规格「共享库」、断言改自播种精确值 + pageSize=500 防分页误报。
+- 任务 6 `84391cb`+`f8bd2cf`+`31cddf6`+`c786ce8`：AGENTS.md 口径（专用档开通行、§4 多租户连接段后的运维口径、§9.7 半句更新、新增 §9.9、基线计数 60→68）+ version bump + provision 内 name 派生收敛。计划误写「§6 数据库小节」的锚点实为 §4「多租户连接选择」段，已按唯一锚点落地。
+- 任务 7（dev 端到端验收，控制者手工执行）：
+  - 建 `qg_provision`（双 host，权限=全局 CREATE+CREATE USER + qingguan_t_%.* ALL WITH GRANT OPTION，实测 SHOW GRANTS 符合）；config.php 补 provision_db 段（php var_export 程序化插入，未回显任何密钥，备份在 /tmp/config.php.pre_provision.bak）。
+  - 注册 `e2e-dedicated`（含连字符 code 实测）→ 平台通过 → **一次点击即全自动开通成功**。
+  - 断言全绿：库 utf8mb4_unicode_ci；21 表；双 host 账号仅授权本库（USAGE ON *.* + ALL ON 本库）；共享库 0 行种子；控制面 active + db_name 回写；审计 register+approve（detail 含专用库名）；专用库内管理员 + 3 角色 + 25 权限 + 59 字典。
+  - 运行时链路：租户登录成功（派生凭据）、/api/menu 6 个顶级菜单（菜单行仅存在于专用库，读到即证明连接正确）、POST /api/companies 写入成功且 org_company 落在专用库（dedicated=1 / shared=0）。
+  - 幂等重放：重复点通过返回「该租户已是开通状态（幂等）」，无 provision_failed。
+  - 清理：DROP 库/双账号 + 控制面行，复核无残留。e2e 期间 platform 会话与限流桶已清。
 
 ### 任务 8：发布 breeder + 收尾回归
 
