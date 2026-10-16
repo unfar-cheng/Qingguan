@@ -24,6 +24,10 @@
             <el-icon><component :is="'DataBoard'"></component></el-icon>
             <span>概览</span>
           </el-menu-item>
+          <el-menu-item index="plans">
+            <el-icon><component :is="'PriceTag'"></component></el-icon>
+            <span>套餐</span>
+          </el-menu-item>
           <el-menu-item index="tenants">
             <el-icon><component :is="'OfficeBuilding'"></component></el-icon>
             <span>租户审核</span>
@@ -179,6 +183,48 @@
             @current-change="function (p) { q.page = p; load(); }"></el-pagination>
         </div>
 
+        <!-- 套餐（注册页 select 的数据源：/plans/public 只列 status=1 的启用项） -->
+        <div class="card" v-else-if="view === 'plans'" v-loading="planLoading">
+          <div class="toolbar">
+            <el-input v-model="planKw" placeholder="代码 / 名称" clearable style="width:220px"></el-input>
+            <div class="spacer"></div>
+            <el-button type="primary" @click="openPlan(null)">新增套餐</el-button>
+          </div>
+          <el-table :data="planShown">
+            <el-table-column prop="code" label="代码" width="100"></el-table-column>
+            <el-table-column prop="name" label="名称" min-width="140"></el-table-column>
+            <el-table-column label="隔离档" width="80">
+              <template #default="s">{{ s.row.mode === 'dedicated' ? '独享库' : '共享库' }}</template>
+            </el-table-column>
+            <el-table-column label="月付" width="95">
+              <template #default="s">¥{{ money(s.row.price_month) }}</template>
+            </el-table-column>
+            <el-table-column label="年付" width="95">
+              <template #default="s">¥{{ money(s.row.price_year) }}</template>
+            </el-table-column>
+            <el-table-column prop="max_users" label="账号上限" width="85"></el-table-column>
+            <el-table-column prop="max_orders" label="订单上限" width="85"></el-table-column>
+            <el-table-column prop="sort" label="排序" width="60"></el-table-column>
+            <el-table-column label="在用租户数" width="95">
+              <template #default="s"><span :title="'按 plan_id 关联的租户数（含已停用）'">{{ s.row.tenant_count }}</span></template>
+            </el-table-column>
+            <el-table-column label="状态" width="82">
+              <template #default="s">
+                <el-tag :type="s.row.status === 1 ? 'success' : 'info'">{{ s.row.status === 1 ? '启用中' : '已失效' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="150" fixed="right">
+              <template #default="s">
+                <el-button size="small" plain @click="openPlan(s.row)">编辑</el-button>
+                <el-button v-if="s.row.status === 1" size="small" type="warning" plain @click="disablePlan(s.row)">失效</el-button>
+                <el-button v-else size="small" type="success" plain @click="enablePlan(s.row)">启用</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-empty v-if="!planLoading && !planShown.length"
+            :description="planKw ? '没有匹配的套餐' : '暂无套餐'" :image-size="60"></el-empty>
+        </div>
+
         <!-- 收款信息 -->
         <div class="card" v-if="view === 'bills'" v-loading="!noticeLoaded">
           <div class="card-title">收款信息</div>
@@ -187,6 +233,42 @@
           <div class="toolbar toolbar-actions">
             <el-button size="small" type="primary" :loading="noticeSaving" :disabled="!noticeLoaded" @click="saveNotice">保存收款信息</el-button>
           </div>
+        </div>
+
+        <!-- 待收款（催款清单：已开通租户的未支付账单按租户汇总） -->
+        <div class="card" v-if="view === 'bills'" v-loading="recLoading">
+          <div class="card-title">待收款<span class="card-hint">用于催款；只列已开通租户的未支付账单</span></div>
+          <el-table v-if="recRows.length" :data="recRows">
+            <el-table-column label="租户" min-width="160">
+              <template #default="s">
+                <div class="cell-main">{{ s.row.tenant_name }}</div>
+                <div class="cell-sub">#{{ s.row.tenant_id }} · {{ s.row.tenant_code }}</div>
+              </template>
+            </el-table-column>
+            <el-table-column label="待收金额" width="105">
+              <template #default="s"><span class="rec-amount">¥{{ money(s.row.amount) }}</span></template>
+            </el-table-column>
+            <el-table-column prop="bill_count" label="账单数" width="70"></el-table-column>
+            <el-table-column label="联系人" width="90">
+              <template #default="s">{{ s.row.contact_name || '—' }}</template>
+            </el-table-column>
+            <el-table-column label="电话" width="115">
+              <template #default="s">{{ s.row.contact_phone || '—' }}</template>
+            </el-table-column>
+            <el-table-column label="邮箱" min-width="140">
+              <template #default="s">{{ s.row.contact_email || '—' }}</template>
+            </el-table-column>
+            <el-table-column label="管理员账号" width="115">
+              <template #default="s">{{ s.row.admin_username || '—' }}</template>
+            </el-table-column>
+            <el-table-column prop="first_at" label="最早账单时间" width="143" class-name="bill-time"></el-table-column>
+            <el-table-column label="操作" width="130" fixed="right">
+              <template #default="s">
+                <el-button size="small" plain @click="copyContact(s.row)">复制联系方式</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-empty v-else-if="!recLoading" description="暂无待收款" :image-size="60"></el-empty>
         </div>
 
         <!-- 账单 -->
@@ -204,25 +286,31 @@
             <el-button type="primary" plain @click="function () { bq.page = 1; loadBills(); }">查询</el-button>
           </div>
           <el-table :data="bRows">
-            <el-table-column prop="id" label="账单号" width="90"></el-table-column>
-            <el-table-column label="租户" min-width="170">
+            <el-table-column prop="id" label="账单号" width="70"></el-table-column>
+            <el-table-column label="租户" min-width="162">
               <template #default="s">{{ s.row.tenant_code ? (s.row.tenant_code + ' · ' + s.row.tenant_name) : '—' }}</template>
             </el-table-column>
-            <el-table-column label="周期" width="80">
+            <el-table-column label="联系方式" width="138" show-overflow-tooltip>
+              <template #default="s">
+                <div>{{ s.row.contact_name || '—' }} {{ s.row.contact_phone || '' }}</div>
+                <div class="cell-sub">{{ s.row.contact_email || '—' }} · {{ s.row.admin_username || '—' }}</div>
+              </template>
+            </el-table-column>
+            <el-table-column label="周期" width="58">
               <template #default="s">{{ s.row.cycle === 'month' ? '月付' : '年付' }}</template>
             </el-table-column>
-            <el-table-column label="金额" width="100">
+            <el-table-column label="金额" width="95">
               <template #default="s">¥{{ s.row.amount }}</template>
             </el-table-column>
-            <el-table-column label="状态" width="90">
+            <el-table-column label="状态" width="82">
               <template #default="s">
                 <el-tag :type="{ unpaid: 'warning', paid: 'success', void: 'info' }[s.row.status] || 'info'">
                   {{ { unpaid: '待支付', paid: '已支付', void: '已作废' }[s.row.status] || s.row.status }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="created_at" label="生成时间" width="160"></el-table-column>
-            <el-table-column prop="paid_at" label="支付时间" width="160">
+            <el-table-column prop="created_at" label="生成时间" width="143" class-name="bill-time"></el-table-column>
+            <el-table-column prop="paid_at" label="支付时间" width="143" class-name="bill-time">
               <template #default="s">{{ s.row.paid_at || '—' }}</template>
             </el-table-column>
             <el-table-column label="操作" width="170" fixed="right">
@@ -325,6 +413,45 @@
       <el-button type="primary" :loading="accSaving" @click="createAccount">创建</el-button>
     </template>
   </el-dialog>
+  <el-dialog v-model="planVisible" :title="planForm.id > 0 ? '编辑套餐' : '新增套餐'" width="560px">
+    <el-form label-width="100px">
+      <el-form-item label="套餐代码" required>
+        <el-input v-model="planForm.code" placeholder="2-30 位小写字母、数字或短横线"></el-input>
+      </el-form-item>
+      <el-form-item label="套餐名称" required>
+        <el-input v-model="planForm.name" placeholder="如：标准版（共享）"></el-input>
+      </el-form-item>
+      <el-form-item label="隔离档" required>
+        <el-radio-group v-model="planForm.mode">
+          <el-radio-button value="shared">共享库</el-radio-button>
+          <el-radio-button value="dedicated">独享库</el-radio-button>
+        </el-radio-group>
+      </el-form-item>
+      <el-form-item label="月付价格">
+        <el-input-number v-model="planForm.price_month" :min="0" :max="9999999.99" :precision="2" :step="100" controls-position="right" style="width:200px"></el-input-number>
+      </el-form-item>
+      <el-form-item label="年付价格">
+        <el-input-number v-model="planForm.price_year" :min="0" :max="9999999.99" :precision="2" :step="100" controls-position="right" style="width:200px"></el-input-number>
+      </el-form-item>
+      <el-form-item label="账号上限">
+        <el-input-number v-model="planForm.max_users" :min="0" :max="100000" controls-position="right" style="width:200px"></el-input-number>
+      </el-form-item>
+      <el-form-item label="订单上限">
+        <el-input-number v-model="planForm.max_orders" :min="0" :max="10000000" controls-position="right" style="width:200px"></el-input-number>
+      </el-form-item>
+      <el-form-item label="排序">
+        <el-input-number v-model="planForm.sort" :min="0" :max="9999" controls-position="right" style="width:200px"></el-input-number>
+      </el-form-item>
+      <el-form-item label="说明">
+        <el-input v-model="planForm.remark" type="textarea" :rows="2" maxlength="255" show-word-limit placeholder="展示给客户的套餐说明"></el-input>
+      </el-form-item>
+    </el-form>
+    <div class="muted" style="font-size:12px">套餐代码全平台唯一；已失效的套餐不出现在注册页，已开通租户不受影响。</div>
+    <template #footer>
+      <el-button @click="planVisible = false">取消</el-button>
+      <el-button type="primary" :loading="planSaving" @click="savePlan">保存</el-button>
+    </template>
+  </el-dialog>
   <el-dialog v-model="pwdVisible" :title="pwdForce ? '首次登录请修改密码' : '修改密码'" width="420px"
     :close-on-click-modal="!pwdForce" :close-on-press-escape="!pwdForce" :show-close="!pwdForce">
     <el-form label-width="90px">
@@ -371,6 +498,11 @@
   .toolbar-actions{justify-content:flex-end;margin:8px 0 0}
   .pager{margin-top:12px;display:flex;justify-content:flex-end}
 
+  .card-hint{color:#909399;font-size:12px;font-weight:400;margin-left:8px}
+  .rec-amount{color:#d93026;font-weight:600}
+  /* 时间戳列窄，左右内边距收到 6px 才放得下「YYYY-MM-DD HH:MM:SS」而不折行（表格总宽紧张，避免横向滚动） */
+  .bill-time .cell{padding-left:6px;padding-right:6px}
+
   @media (max-width:1200px){
     .view-overview .stat-grid{grid-template-columns:repeat(2,1fr)}
   }
@@ -402,6 +534,15 @@ function qgCopyTempFallback(t, done) {
   try { document.execCommand('copy'); done(); } catch (e) { ElementPlus.ElMessage.warning('复制失败，请手动抄写'); }
   document.body.removeChild(ta);
 }
+/* 通用文本复制（待收款清单的「复制联系方式」）：与临时密码同一套写法，失败回落到 execCommand */
+function qgCopyText(t, okMsg) {
+  var done = function () { ElementPlus.ElMessage.success(okMsg || '已复制'); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(t).then(done).catch(function () { qgCopyTempFallback(t, done); });
+  } else {
+    qgCopyTempFallback(t, done);
+  }
+}
 </script>
 <script src="/assets/vendor/vue.global.prod.js"></script>
 <script src="/assets/vendor/element-plus.full.min.js"></script>
@@ -418,21 +559,34 @@ QG.mount(function () {
         rows: [], total: 0, loading: false, status: 'pending', q: { page: 1, pageSize: 20, keyword: '' },
         aRows: [], aTotal: 0, aLoading: false, aAction: '', aTenant: '', aq: { page: 1, pageSize: 20 },
         bRows: [], bTotal: 0, bLoading: false, bStatus: '', bTenant: '', bq: { page: 1, pageSize: 20 },
+        recRows: [], recLoading: false,
+        planRows: [], planLoading: false, planKw: '', planVisible: false, planSaving: false,
+        planForm: { id: 0, code: '', name: '', mode: 'shared', price_month: 0, price_year: 0,
+          max_users: 0, max_orders: 0, remark: '', sort: 0 },
         accRows: [], accLoading: false, accKw: '', accVisible: false, accSaving: false,
         accForm: { username: '', real_name: '', email: '' },
         noticeDraft: '', noticeSaving: false, noticeLoaded: false,
         pwdVisible: false, pwdForce: false, saving: false,
         pwdForm: { old_password: '', new_password: '', confirm: '' },
         auditActions: ['register', 'approve', 'reject', 'suspend', 'enable', 'login', 'bill_paid', 'bill_void', 'provision_failed',
-          'admin_reset', 'account_create', 'account_disable', 'account_enable', 'account_reset', 'account_password', 'setting_update']
+          'admin_reset', 'account_create', 'account_disable', 'account_enable', 'account_reset', 'account_password', 'setting_update',
+          'plan_create', 'plan_update', 'plan_disable', 'plan_enable']
       };
     },
     computed: {
       viewTitle: function () {
-        return { overview: '概览', tenants: '租户审核', bills: '账单', audits: '审计日志', accounts: '账号' }[this.view] || '概览';
+        return { overview: '概览', plans: '套餐', tenants: '租户审核', bills: '账单', audits: '审计日志', accounts: '账号' }[this.view] || '概览';
       },
       pendingCount: function () {
         return this.sumLoaded ? (this.sum.pending || 0) : 0;
+      },
+      /* 套餐量级极小（个位数），关键词过滤同样放前端 */
+      planShown: function () {
+        var kw = (this.planKw || '').trim().toLowerCase();
+        if (!kw) { return this.planRows; }
+        return this.planRows.filter(function (p) {
+          return ((p.code || '') + ' ' + (p.name || '')).toLowerCase().indexOf(kw) >= 0;
+        });
       },
       /* 账号列表的关键词过滤是纯前端的：平台账号量级极小，不必为一个输入框加服务端参数 */
       accShown: function () {
@@ -467,8 +621,9 @@ QG.mount(function () {
       onView: function (index) {
         this.view = index;
         if (index === 'overview') { this.loadOverview(); }
+        if (index === 'plans') { this.loadPlans(); }
         if (index === 'tenants') { this.q.page = 1; this.load(); }
-        if (index === 'bills') { this.loadBills(); this.loadNotice(); }
+        if (index === 'bills') { this.loadBills(); this.loadNotice(); this.loadReceivables(); }
         if (index === 'audits') { this.loadAudits(); }
         if (index === 'accounts') { this.loadAccounts(); }
       },
@@ -486,6 +641,7 @@ QG.mount(function () {
         this.bq.page = 1;
         this.loadBills();
         this.loadNotice();
+        this.loadReceivables();
       },
 
       /* ---------- 概览看板 ---------- */
@@ -521,6 +677,68 @@ QG.mount(function () {
       afterTenantChange: function () {
         this.loadOverview();
         if (this.view === 'tenants') { this.load(); }
+      },
+      money: function (v) { return QG.money(v); },
+
+      /* ---------- 套餐 ---------- */
+      loadPlans: function () {
+        var self = this;
+        self.planLoading = true;
+        QG.get('/platform/plans').then(function (d) { self.planRows = d || []; })
+          .catch(function (e) { QG.err(e); })
+          .finally(function () { self.planLoading = false; });
+      },
+      /* 新增（row 为 null）与编辑共用一个弹窗：编辑时预填，代码也允许改（后端查唯一） */
+      openPlan: function (row) {
+        this.planForm = row ? {
+          id: row.id, code: row.code || '', name: row.name || '', mode: row.mode || 'shared',
+          price_month: Number(row.price_month) || 0, price_year: Number(row.price_year) || 0,
+          max_users: Number(row.max_users) || 0, max_orders: Number(row.max_orders) || 0,
+          remark: row.remark || '', sort: Number(row.sort) || 0
+        } : {
+          id: 0, code: '', name: '', mode: 'shared', price_month: 0, price_year: 0,
+          max_users: 0, max_orders: 0, remark: '', sort: 0
+        };
+        this.planVisible = true;
+      },
+      savePlan: function () {
+        var self = this;
+        var f = self.planForm;
+        var code = (f.code || '').trim().toLowerCase();
+        if (!/^[a-z0-9][a-z0-9-]{1,29}$/.test(code)) { return QG.warn('套餐代码需为 2-30 位小写字母、数字或短横线'); }
+        if (!(f.name || '').trim()) { return QG.warn('请填写套餐名称'); }
+        if (f.mode !== 'shared' && f.mode !== 'dedicated') { return QG.warn('请选择隔离档'); }
+        var body = {
+          code: code, name: (f.name || '').trim(), mode: f.mode,
+          price_month: f.price_month, price_year: f.price_year,
+          max_users: f.max_users, max_orders: f.max_orders,
+          remark: (f.remark || '').trim(), sort: f.sort
+        };
+        var isEdit = f.id > 0;
+        self.planSaving = true;
+        var req = isEdit ? QG.put('/platform/plans/' + f.id, body) : QG.post('/platform/plans', body);
+        req.then(function () {
+          QG.toast(isEdit ? '套餐已保存' : '套餐已新增');
+          self.planVisible = false;
+          self.loadPlans();
+        }).catch(function (e) { QG.err(e); })
+          .finally(function () { self.planSaving = false; });
+      },
+      disablePlan: function (row) {
+        var self = this;
+        QG.confirm('确定失效套餐「' + row.name + '」（' + row.code + '）？注册页将不再展示该套餐，已开通租户不受影响。').then(function () {
+          QG.post('/platform/plans/' + row.id + '/disable', {})
+            .then(function () { QG.toast('已失效，注册页不再展示该套餐'); self.loadPlans(); })
+            .catch(function (e) { QG.err(e); });
+        }).catch(function () {});
+      },
+      enablePlan: function (row) {
+        var self = this;
+        QG.confirm('确定启用套餐「' + row.name + '」（' + row.code + '）？启用后注册页可重新选择该套餐。').then(function () {
+          QG.post('/platform/plans/' + row.id + '/enable', {})
+            .then(function () { QG.toast('已启用'); self.loadPlans(); })
+            .catch(function (e) { QG.err(e); });
+        }).catch(function () {});
       },
 
       /* ---------- 租户审核 ---------- */
@@ -662,6 +880,20 @@ QG.mount(function () {
           .catch(function (e) { QG.err(e); })
           .finally(function () { self.bLoading = false; });
       },
+      loadReceivables: function () {
+        var self = this;
+        self.recLoading = true;
+        QG.get('/platform/receivables').then(function (d) { self.recRows = d || []; })
+          .catch(function (e) { QG.err(e); })
+          .finally(function () { self.recLoading = false; });
+      },
+      /* 催款时直接把联系方式贴给客户：企业名（代码）｜联系人 电话 邮箱｜管理员 账号 */
+      copyContact: function (row) {
+        var text = (row.tenant_name || '') + '（' + (row.tenant_code || '') + '）｜'
+          + ((row.contact_name || '—') + ' ' + (row.contact_phone || '') + ' ' + (row.contact_email || '')).replace(/\s+/g, ' ').trim()
+          + '｜管理员 ' + (row.admin_username || '—');
+        qgCopyText(text, '联系方式已复制');
+      },
       confirmBill: function (row) {
         var self = this;
         QG.confirm('确认已收到「' + row.tenant_code + '」' + (row.cycle === 'month' ? '月付' : '年付') + ' ¥' + row.amount + '？确认后服务期立即顺延。').then(function () {
@@ -696,7 +928,8 @@ QG.mount(function () {
           bill_paid: '确认收款', bill_void: '账单作废', provision_failed: '开通失败',
           admin_reset: '代重置管理员密码', account_create: '新增平台账号', account_disable: '停用平台账号',
           account_enable: '启用平台账号', account_reset: '重置平台账号密码', account_password: '平台账号改密',
-          setting_update: '平台设置'
+          setting_update: '平台设置', plan_create: '新增套餐', plan_update: '修改套餐',
+          plan_disable: '失效套餐', plan_enable: '启用套餐'
         }[a] || a;
       },
       auditTag: function (a) {
@@ -704,7 +937,8 @@ QG.mount(function () {
           approve: 'success', enable: 'success', reject: 'danger', bill_paid: 'success', bill_void: 'warning',
           provision_failed: 'danger', suspend: 'warning', register: 'info', login: 'info',
           admin_reset: 'warning', account_create: 'success', account_disable: 'warning', account_enable: 'success',
-          account_reset: 'warning', account_password: 'info', setting_update: 'info'
+          account_reset: 'warning', account_password: 'info', setting_update: 'info',
+          plan_create: 'success', plan_update: 'info', plan_disable: 'warning', plan_enable: 'success'
         }[a] || 'info';
       },
       auditRowClass: function (o) {
