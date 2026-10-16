@@ -9,9 +9,12 @@ use QG\RateLimit;
 use QG\Req;
 use QG\Response;
 use QG\Router;
+use QG\TempPassword;
+use QG\Tenant;
 use QG\TenantProvisioner;
 use QG\repos\BillRepo;
 use QG\repos\SettingRepo;
+use QG\repos\UserRepo;
 
 /** 平台侧：超管登录 + 租户审核。全部路由在 /api/platform/* 下，令牌 scope=platform。 */
 class PlatformController
@@ -32,6 +35,13 @@ class PlatformController
         $r->post('/platform/tenants/{id}/enable', [self::class, 'enable']);
         $r->get('/platform/settings', [self::class, 'settingsGet']);
         $r->put('/platform/settings', [self::class, 'settingsPut']);
+        $r->post('/platform/tenants/{id}/reset-admin-password', [self::class, 'resetAdminPassword']);
+        $r->get('/platform/accounts', [self::class, 'accounts']);
+        $r->post('/platform/accounts', [self::class, 'accountCreate']);
+        $r->post('/platform/accounts/{id}/disable', [self::class, 'accountDisable']);
+        $r->post('/platform/accounts/{id}/enable', [self::class, 'accountEnable']);
+        $r->post('/platform/accounts/{id}/reset-password', [self::class, 'accountReset']);
+        $r->post('/platform/password', [self::class, 'platformPassword']);
     }
 
     public static function login(): void
@@ -219,6 +229,148 @@ class PlatformController
         self::audit((int) $admin['id'], 'bill_void', (int) $bill['tenant_id'],
             '账单 #' . ($p['id'] ?? 0) . '（' . ($bill['cycle'] === 'month' ? '月付' : '年付') . ' ¥' . $bill['amount'] . '）作废：' . $reason);
         Response::ok(null, '已作废');
+    }
+
+    /** 平台代重置租户管理员密码：临时密码一次性返回，管理员首登强制改密。 */
+    public static function resetAdminPassword(array $p): void
+    {
+        $admin = Auth::requirePlatform();
+        $t = ControlDb::one('SELECT * FROM saas_tenant WHERE id = ? LIMIT 1', [(int) ($p['id'] ?? 0)]);
+        if (!$t || $t['status'] !== 'active') {
+            Response::fail('仅已开通的租户可重置管理员密码');
+        }
+        if ($t['admin_username'] === '') {
+            Response::fail('该租户没有管理员账号');
+        }
+        $temp = TempPassword::generate();
+        Tenant::set(['id' => (int) $t['id'], 'mode' => $t['mode'], 'db_name' => $t['db_name'], 'code' => $t['code']]);
+        try {
+            $n = UserRepo::forceResetByUsername($t['admin_username'], password_hash($temp, PASSWORD_DEFAULT));
+        } finally {
+            Tenant::set(null);
+        }
+        if ($n === 0) {
+            Response::fail('租户管理员账号不存在');
+        }
+        self::audit((int) $admin['id'], 'admin_reset', (int) $t['id'],
+            '重置管理员账号 ' . $t['admin_username'] . ' 的密码（临时密码已线下交付）');
+        Response::ok(['temp_password' => $temp], '已重置，请线下告知客户，其首登须修改密码');
+    }
+
+    public static function accounts(): void
+    {
+        Auth::requirePlatform();
+        Response::ok(ControlDb::all(
+            'SELECT id, username, real_name, email, status, must_change_password, last_login_at, created_at
+               FROM saas_platform_user ORDER BY id'
+        ));
+    }
+
+    public static function accountCreate(): void
+    {
+        $admin = Auth::requirePlatform();
+        $username = Req::str('username');
+        $realName = Req::require_('real_name', '姓名');
+        $email = trim(Req::str('email'));
+        if (!preg_match('/^[a-zA-Z0-9_]{3,30}$/', $username)) {
+            Response::fail('平台账号需为 3-30 位字母、数字或下划线');
+        }
+        if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            Response::fail('邮箱格式不正确');
+        }
+        if (ControlDb::val('SELECT COUNT(*) FROM saas_platform_user WHERE username = ?', [$username])) {
+            Response::fail('该平台账号已存在');
+        }
+        $temp = TempPassword::generate();
+        try {
+            ControlDb::insert('saas_platform_user', [
+                'username' => $username, 'real_name' => $realName, 'email' => $email,
+                'password_hash' => password_hash($temp, PASSWORD_DEFAULT),
+                'must_change_password' => 1, 'status' => 1,
+            ]);
+        } catch (\PDOException $e) {
+            if ($e->getCode() === '23000') { Response::fail('该平台账号已存在'); }
+            throw $e;
+        }
+        self::audit((int) $admin['id'], 'account_create', null, '新增平台账号 ' . $username);
+        Response::ok(['temp_password' => $temp], '已创建，请线下告知该账号，其首登须修改密码');
+    }
+
+    public static function accountDisable(array $p): void
+    {
+        $admin = Auth::requirePlatform();
+        $id = (int) ($p['id'] ?? 0);
+        if ($id === (int) $admin['id']) {
+            Response::fail('不能停用自己的账号');
+        }
+        $target = ControlDb::one('SELECT id, username, status FROM saas_platform_user WHERE id = ? LIMIT 1', [$id]);
+        if (!$target) {
+            Response::fail('平台账号不存在');
+        }
+        ControlDb::begin();
+        try {
+            $n = ControlDb::exec('UPDATE saas_platform_user SET status = 0 WHERE id = ? AND status = 1', [$id]);
+            if ($n === 0) {
+                throw new \RuntimeException('账号状态已变化，请刷新后重试');
+            }
+            if ((int) ControlDb::val('SELECT COUNT(*) FROM saas_platform_user WHERE status = 1') === 0) {
+                throw new \RuntimeException('至少保留一个启用中的平台账号');
+            }
+            ControlDb::commit();
+        } catch (\Throwable $e) {
+            ControlDb::rollback();
+            Response::fail($e->getMessage());
+        }
+        self::audit((int) $admin['id'], 'account_disable', null, '停用平台账号 ' . $target['username']);
+        Response::ok(null, '已停用');
+    }
+
+    public static function accountEnable(array $p): void
+    {
+        $admin = Auth::requirePlatform();
+        $n = ControlDb::exec('UPDATE saas_platform_user SET status = 1 WHERE id = ? AND status = 0', [(int) ($p['id'] ?? 0)]);
+        if ($n === 0) {
+            Response::fail('平台账号不存在或已启用');
+        }
+        self::audit((int) $admin['id'], 'account_enable', null, '启用平台账号 #' . ($p['id'] ?? 0));
+        Response::ok(null, '已启用');
+    }
+
+    public static function accountReset(array $p): void
+    {
+        $admin = Auth::requirePlatform();
+        $id = (int) ($p['id'] ?? 0);
+        $target = ControlDb::one('SELECT id, username FROM saas_platform_user WHERE id = ? LIMIT 1', [$id]);
+        if (!$target) {
+            Response::fail('平台账号不存在');
+        }
+        $temp = TempPassword::generate();
+        ControlDb::exec(
+            'UPDATE saas_platform_user SET password_hash = ?, must_change_password = 1, status = 1 WHERE id = ?',
+            [password_hash($temp, PASSWORD_DEFAULT), $id]
+        );
+        self::audit((int) $admin['id'], 'account_reset', null, '重置平台账号 ' . $target['username'] . ' 的密码（临时密码已线下交付）');
+        Response::ok(['temp_password' => $temp], '已重置，请线下告知该账号，其首登须修改密码');
+    }
+
+    public static function platformPassword(): void
+    {
+        $admin = Auth::requirePlatform();
+        $old = Req::str('old_password');
+        $new = Req::str('new_password');
+        if (strlen($new) < 10) {
+            Response::fail('新密码至少 10 位');
+        }
+        $row = ControlDb::one('SELECT password_hash FROM saas_platform_user WHERE id = ? LIMIT 1', [(int) $admin['id']]);
+        if (!$row || !password_verify($old, $row['password_hash'])) {
+            Response::fail('原密码不正确');
+        }
+        ControlDb::exec(
+            'UPDATE saas_platform_user SET password_hash = ?, must_change_password = 0 WHERE id = ?',
+            [password_hash($new, PASSWORD_DEFAULT), (int) $admin['id']]
+        );
+        self::audit((int) $admin['id'], 'account_password', null, '平台账号 ' . $admin['username'] . ' 修改了密码');
+        Response::ok(null, '密码已修改');
     }
 
     public static function approve(array $p): void

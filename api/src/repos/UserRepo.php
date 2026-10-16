@@ -103,6 +103,15 @@ class UserRepo
             [Tenant::requireId(), $id]);
     }
 
+    /** 平台代重置：按租户内用户名强制改密（调用前须建好该租户上下文，用完由调用方清空） */
+    public static function forceResetByUsername(string $username, string $hash): int
+    {
+        return Db::exec(
+            'UPDATE sys_user SET password_hash = ?, must_change_password = 1, status = 1 WHERE tenant_id = ? AND username = ?',
+            [$hash, Tenant::requireId(), $username]
+        );
+    }
+
     /** 软删：同时停用（对齐 SystemController::staffDelete） */
     public static function softDelete(int $id): int
     {
