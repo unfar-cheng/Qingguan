@@ -32,8 +32,8 @@
 全部在 `/data/qingguan/app` 下执行：
 
 ```bash
-# 跑测试（78 个用例；HTTP 用例需要站点在跑，否则自动跳过）
-php83 tests/run.php                     # 期望 78 passed, 0 failed
+# 跑测试（85 个用例；HTTP 用例需要站点在跑，否则自动跳过）
+php83 tests/run.php                     # 期望 85 passed, 0 failed
 php83 tests/guard_no_raw_business_sql.php   # 期望 guard ok
 
 # 只跑部分 / 指向临时站点
@@ -75,15 +75,16 @@ api/src/Auth.php       HMAC-SHA256 签名 token（HttpOnly cookie qg_token）、
 api/src/Tenant.php     每请求租户上下文 + 按库名缓存的 PDO 池
 api/src/Db.php         数据面薄封装，**写死走 Tenant::pdo()**
 api/src/ControlDb.php  控制面连接（跨租户对象）
-api/src/controllers/   10 个：Auth/Bill/Order/Plan/Org/Finance/System/Upload + Platform（平台登录与租户审核）/Tenant（注册/品牌公开接口 + Logo 上传）
-api/src/repos/         13 个：Order/Bill/Finance/User/Permission/Role/Company/Plan/Log/Dict/File/Config（+ProvisionRepo 开通播种）
+api/src/controllers/   10 个：Auth/Bill/Order/Plan/Org/Finance/System/Upload + Platform（平台登录、租户审核、账单、平台账号与设置）/Tenant（注册/品牌公开接口 + Logo 上传）
+api/src/repos/         14 个：Order/Bill/Finance/User/Permission/Role/Company/Plan/Log/Dict/File/Config/Setting（控制面 saas_setting 键值，键白名单在 PlatformController::SETTING_KEYS）（+ProvisionRepo 开通播种）
 api/src/RateLimit.php  文件型滑动窗口限流（api/runtime/ratelimit/，fail-open）
 api/src/TenantProvisioner.php  幂等开通：按 tenant_id 执行 db/schema.sql 播种 + 建管理员（SQL 在 repos/ProvisionRepo）
+api/src/TempPassword.php  临时密码生成（12 位、无易混淆字符、random_int；只出哈希入库，明文仅一次性响应）
 index.html             外壳：左侧菜单(来自 /api/menu) + 保活 iframe 多标签 + 版本水印 + 租户品牌（名称/Logo）
 login.html             登录页（租户代码 + 用户名 + 密码；输入租户代码失焦拉 /api/tenant/branding 显示企业品牌）
 register.html          企业自助注册页（公开，→ saas_tenant status=pending）
 admin-login.html       平台管理登录页（公开，→ /api/platform/login）
-platform.html          平台后台：租户审核（通过/驳回/停用/启用），scope=platform；页面在 common.js 之前设 window.QG_LOGIN_URL 跳回平台登录
+platform.html          平台后台四视图：租户审核 / 审计日志 / 账单（含收款信息维护卡）/ 账号（增停启重置），scope=platform；页面在 common.js 之前设 window.QG_LOGIN_URL 跳回平台登录
 pages/*.html           17 个子页面
 assets/js/common.js    全局 QG：API 封装、分页列表 mixin、下拉缓存、QG.can、QG.selfCheck
 assets/js/orders.js    QG.orderListPage(module) 生成 4 个订单列表页；assets/js/org.js 同理
@@ -131,6 +132,14 @@ ops/                   Apache vhost 与 php83-fpm 池配置
 
 **控制面库**（`db/control/schema.sql`，装机时跑一次）：`saas_plan`、`saas_tenant`（`code` 唯一、`mode shared|dedicated`、`db_name`、`status pending|active|rejected|suspended`、`bill_cycle`/`expires_at` 服务期）、`saas_platform_user`、`saas_audit`、`saas_bill`。`db/control/seed_tenant1.sql` 把原有单机数据登记成租户 #1（`code='demo'`）。
 
+**账号与密码管理**（2026-10-16 起，规格见 `docs/superpowers/specs/2026-10-16-account-password-management-design.md`）：两套账号各加 `must_change_password`（`sys_user` / `saas_platform_user`，均为 `TINYINT(1) NOT NULL DEFAULT 0`，迁移 `migration_20261016_user_force_change.sql` / `migration_20261016_platform_account.sql`），登录响应与 `/auth/me`、`/platform/me` 自动带出（值为 **int 0/1**，前端按真值判断即可），改密成功后清零。
+
+- **临时密码零明文口径**：`TempPassword::generate()`（12 位、剔除 `0Oo1lIi` 形近字符族）只由服务端调用；**明文只出现在一次性响应 `data.temp_password` 里**，落库的只有 `password_hash`，审计（`saas_audit.detail` / `sys_log`）只记动作不记明文。平台侧入口：代重置租户管理员 `POST /platform/tenants/{id}/reset-admin-password`、新增平台账号 `POST /platform/accounts`、重置平台账号 `POST /platform/accounts/{id}/reset-password`。
+- **平台账号保护规则三条**：① 不能停用自己的账号；② 停用只置 `status=0`（不物理删除），停用后旧会话立即失效（`Auth::user()` 每次按 `status=1` 重查）；③ 「至少保留一个启用账号」在事务内校验（并发防御：只有请求方账号在同一事务窗口被别的请求停掉才可能命中，见 §9）。
+- **平台账号等权**：`saas_platform_user` 没有超管/普通之分，任何启用账号都能管理其他账号与执行代重置；因此上面的规则是唯一护栏，别绕过接口直接改库。
+- `must_change_password` 只在「改密成功」路径清零：租户侧 `UserRepo::clearMustChangePassword()`（带 `tenant_id` 隔离）、平台侧 `PlatformController::platformPassword()`（新密码 **≥10 位**；租户侧 `/auth/password` 仍是 ≥6 位）。
+- 平台设置（收款信息）走控制面 `saas_setting` 键值表，键白名单在 `PlatformController::SETTING_KEYS`（当前只有 `billing_notice`）；`PUT /platform/settings` **只处理请求体里出现的白名单键**，**显式空串 = 清空**（删行、租户端回落 `config.php` 的 `app.billing_notice` 或默认文案），>2000 字拒绝，无有效键报「没有需要更新的设置项」。租户端数据源：`/auth/me` 的 `billing.notice`。
+
 **数据面库**（共享库或每租户专用库，21 张表）：7 张 `sys_*` + `org_company`、`biz_plan`、`biz_order` 及子表、`biz_isf`、`biz_inspect`、`biz_pickup`、`fin_account`、`fin_recharge`、`fin_payable`。**所有业务表都带 `tenant_id`**，唯一键已改造成 `uk_tenant_*` 复合键，另有 `idx_tenant_list`/`idx_tenant_order`。
 
 **两套迁移命名，别混**：
@@ -159,10 +168,10 @@ mysql -u<user> -p <库名> -e "SET @tenant_id := <id>; SOURCE db/schema.sql;"
 ## 7. 测试
 
 - 零依赖自建断言器：`tests/lib.php` 提供 `t($name, $fn)`、`assert_true/assert_eq/assert_contains`；`tests/run.php` glob `tests/test_*.php` 后逐个跑，打印 `PASS/FAIL` 并在失败时退出非零。
-- **测试连的是 `api/config/config.php` 指向的真实开发库**（`bootstrap.php` 读 `App::config('db')` / `control_db`）——**没有独立测试库，也没有读 `.env`**。隔离靠使用高号段合成租户 id（9001/9002/9101…）并在用例结束时清理。因为直连真实库，别在测试里做破坏性操作。
+- **测试连的是 `api/config/config.php` 指向的真实开发库**（`bootstrap.php` 读 `App::config('db')` / `control_db`）——**没有独立测试库，也没有读 `.env`**。隔离靠使用高号段合成租户 id（9001/9002、9100xx（账单）、9200xx（账号）…）并在用例结束时清理；平台账号造数用 `accpt` 前缀（`tests/test_account_http.php`），审计行按「用例开始时的 `MAX(saas_audit.id)`」删本次新增。因为直连真实库，别在测试里做破坏性操作，**尤其别动 `saas_platform_user` 的 id=1**（平台超管，dev 只播种了这一个）。
 - HTTP 用例走 **`curl` 命令行**（`tests/http.php`，因为 breeder 上没装 `php-curl`），默认打 `QG_BASE` 或 `https://qingguan-dev.sflswall.com.cn`；站点不通会**自动跳过**（`qg_site_up()` 探测 `/api/auth/me`）。部分用例依赖已播种的 `demo / admin / admin123`。
-- 预期基线：`php83 tests/run.php` → `78 passed, 0 failed`；守卫 → `guard ok`。**这两个不绿不要提交。**
-- 限流与测试的交互：`register` 5 次/小时/IP、`platform-login` 10 次/10 分钟、`tenant-login` 20 次/10 分钟（存 `api/runtime/ratelimit/`）。一次全量套件恰好用满部分桶——**`tests/bootstrap.php` 在套件启动时会自动清空该目录**，所以重复跑全绿；手工打接口验证时若撞 429，`rm -rf api/runtime/ratelimit/*` 即可。
+- 预期基线：`php83 tests/run.php` → `85 passed, 0 failed`；守卫 → `guard ok`。**这两个不绿不要提交。**
+- 限流与测试的交互：`register` 5 次/小时/IP、`platform-login` 10 次/10 分钟、`tenant-login` 20 次/10 分钟（存 `api/runtime/ratelimit/`）。一次全量套件恰好用满部分桶——**`tests/bootstrap.php` 在套件启动时会自动清空该目录**，所以重复跑全绿；手工打接口验证时若撞 429，`rm -rf api/runtime/ratelimit/*` 即可。**桶是全局共享的**（同一 IP 的套件内所有文件共用），所以 `tests/test_account_http.php` 会自己再清一次桶（`ac_reset_ratelimit()`，跑完恢复成空），否则它新加的十几次登录会把后面的 `test_platform_api` 顶成 429 假红。
 - **结构把闸**：`tests/test_schema_parity.php` 会把 `db/schema.sql` 里的 21 条 CREATE TABLE 落到当前库（`__parity__` 前缀临时表）再与真实表逐列逐键比对——**改了 `db/migration_*.sql` 的结构却忘了同步 `db/schema.sql` 的 DDL 段时它会红**。这是「每次表结构变更也要维护好 db/schema.sql」的强制手段。
 
 ## 8. 部署与运维纪律
@@ -187,6 +196,10 @@ mysql -u<user> -p <库名> -e "SET @tenant_id := <id>; SOURCE db/schema.sql;"
 8. **schema.sql 的语句字符串内不得含 ASCII 分号**：开通播种由 `ProvisionRepo::splitStatements()` 去注释行后按 `;` 切段执行，值里混入 `;` 会切坏语句。同理行尾注释必须 `-- `（带空格）。改 schema.sql 前先看 `ProvisionRepo` 头注释的三条约定。
 9. **`qg_provision` 是高价值凭据但权限收敛**：仅全局 CREATE/CREATE USER + `qingguan_t_%`.* 的 ALL——读不到任何现有业务数据。provision_db 未配置时专用档开通报「未配置」并留 pending，共享档不受影响。专用档租户上下文必须带 `code`（派生凭据用），手工 `Tenant::set` 造 dedicated 上下文而不带 code 会抛「缺少 code」。
 10. **`saas_bill` 确认收款必须走 `PlatformController::confirmBill` 的事务路径**（账单 paid 与 `saas_tenant.expires_at` 重算两写原子）——手工改库会造成账单与到期日不一致，且 paid 是终态无法重放。
+11. **强改密码弹窗是全应用唯一「锁死」风险单点**（2026-10-16）：租户端 `index.html` 与平台端 `platform.html` 在 `must_change_password=1` 时会**强制**弹改密对话框，改完必须能重新登录，否则该账号再也进不去。交互（尤其「新密码校验失败 / 取消 / 改密后重新登录」三条路径）改动必须过 `php83 tests/run.php`（`test_account_http.php` 覆盖服务端清零；前端手工验收见本功能计划任务 8）。另注意 `must_change_password` 在 JSON 里是 **int 0/1**，别用 `=== true` 比对。
+12. **迁移扇出脚本的结果集坑**（2026-10-16 修）：`scripts/migrate_dedicated.php` 曾用 `PDO::exec()` 执行会产生结果集的迁移语句，下一句必报 `2014 Commands out of sync`——幂等重跑（第二遍）才暴露。已改为 `query()` + 取尽 `nextRowset()`；新增扇出用途时别改回 `exec()`。
+13. **限流桶是全局共享的，会跨测试文件互相顶**：`tests/bootstrap.php` 只在套件启动时清一次桶，而 `platform-login` 只有 10 次/10 分钟（`test_platform_api` 一个文件就要登录 6 次）。新增 HTTP 用例若多做几次登录，必须像 `tests/test_account_http.php` 的 `ac_reset_ratelimit()` 那样**在用例内按需清桶、跑完把桶恢复成空**，否则表现为「单独跑绿、全量跑红」的 429 假回归。排查这类假红先看 `api/runtime/ratelimit/*.json`。
+14. **平台账号「至少保留一个启用账号」是并发防御分支**：正常单请求路径构造不出来（请求方自己就是启用账号，除非它在本事务窗口内被别的请求停掉），本机 dev 只播种 `saas_platform_user` id=1 且**它必须保持启用**，所以 HTTP 用例不覆盖这条分支——别为了「测一遍」去临时停用 id=1（崩了就把平台锁死），要验证得靠双请求并发压测。
 
 ## 10. 提交与分支
 
