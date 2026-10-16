@@ -1,7 +1,7 @@
 # P0-B+C · 账号与密码管理 设计
 
 - 日期：2026-10-16
-- 状态：设计已确认（临时密码+首登强改、等权账号+三条保护规则均经选择拍板）；待写成实现计划
+- 状态：设计已确认（临时密码+首登强改、等权账号+三条保护规则、收款信息平台维护均经拍板）；待写成实现计划
 - 范围拆分：P0-B 租户管理员密码代重置 与 P0-C 平台账号管理 合并为一份规格（同属「账号与密码」域，共享临时密码与强制改密机制）
 - 前置：账单与有效期已上线（`docs/superpowers/specs/2026-10-16-billing-expiry-design.md`）；平台审计日志页已上线
 
@@ -22,6 +22,7 @@
 | 首登强改 | **是**：`must_change_password` 标记，登录后强制改密弹窗（不可关闭），改密成功才放行 |
 | 平台账号权限 | **等权**（无角色列）；保护规则三条：不能停用自己、不能停用最后一个启用中的账号、只停用不物理删除 |
 | 重置与停用的关系 | 重置顺带启用（status=1），语义为「平台主动恢复该账号访问」 |
+| 收款信息（billing_notice） | **平台管理界面维护**（控制面 `saas_setting` 键值表，白名单键），替代 config.php 手工改；`/auth/me` 读值 = 设置表优先、config 兜底 |
 
 ### 非目标（YAGNI）
 
@@ -50,6 +51,22 @@ ALTER TABLE `sys_user`
 ```
 
 迁移文件 `db/migration_20261016_user_force_change.sql`。**执行面 = 共享库手工跑 + 专用库 `php83 scripts/migrate_dedicated.php <file>` 扇出**（dev 有 `qingguan_t_woniu`；生产专用库随首个专用租户开通出现，发布时扇出 dry-run 确认清单）。**数据面改表会触发 `tests/test_schema_parity.php` 红灯** → `db/schema.sql` 的 `sys_user` DDL 同步是硬步骤（新增列放在 status 之后，与迁移一致）。
+
+### 2.3 平台设置表（收款信息维护，控制面）
+
+```sql
+CREATE TABLE IF NOT EXISTS `saas_setting` (
+  `setting_key`   VARCHAR(50) NOT NULL,
+  `setting_value` TEXT NOT NULL,
+  `updated_by`    INT UNSIGNED NULL,
+  `updated_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`setting_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='平台设置（键值）';
+```
+
+- 迁移并入 `db/migration_20261016_platform_account.sql`；`db/control/schema.sql` 同步；
+- 键白名单（代码常量）：目前仅 `billing_notice`（对公账户与汇款说明，多行文本）；
+- **数据源**：租户侧 `/auth/me` 的 `billing.notice` = `saas_setting.billing_notice` 优先，`config.php app.billing_notice` 兜底，再兜底「对公账户信息请联系平台获取」（默认文案不含部署内部措辞）。
 
 ## 3. 临时密码生成器（`api/src/TempPassword.php`）
 
@@ -97,6 +114,8 @@ TempPassword::generate(int $length = 12): string
 | `POST /api/platform/accounts/{id}/enable` | 启用（status=1）；审计 `account_enable` |
 | `POST /api/platform/accounts/{id}/reset-password` | 生成临时密码 + `must_change_password=1` + `status=1`（重置即启用）；审计 `account_reset`；响应一次性 `temp_password` |
 | `POST /api/platform/password` | 自己改自己：old_password 验证、new ≥10 位；成功清零 `must_change_password`；审计 `account_password`（不写新旧密码） |
+| `GET /api/platform/settings` | 返回键白名单内全部设置项（目前仅 `billing_notice`） |
+| `PUT /api/platform/settings` | 更新设置：body 为 `{键: 值}`，键须在白名单内（目前仅 `billing_notice`），value 非空字符串 ≤2000 字；upsert + 记 `updated_by`；审计 `setting_update`（detail 含键名，不含值全文——值可能很长） |
 
 ### 5.2 强制改密链路（平台侧）
 
@@ -107,6 +126,7 @@ TempPassword::generate(int $length = 12): string
 ### 5.3 前端
 
 - `platform.html` 第四视图「账号」：账号表（用户名/姓名/邮箱/状态徽标/最近登录/创建时间）+ 「新增账号」按钮（表单：用户名/姓名/邮箱 → 成功弹窗一次性展示临时密码 + 复制）+ 行操作（启用中：停用/重置密码；已停用：启用/重置密码）；
+- 「账单」视图顶部加**「收款信息」维护卡**（多行文本框 + 保存按钮，走 `GET/PUT /api/platform/settings`；保存成功 toast「收款信息已更新，租户账单中心即时生效」）；
 - 页头加「修改密码」按钮（对话框：旧密码/新密码/确认，走 `POST /api/platform/password`）。
 
 ## 6. 测试策略
@@ -116,7 +136,8 @@ TempPassword::generate(int $length = 12): string
   1. 租户代重置全链路：平台重置 → 旧密码登录失败 → 临时密码登录成功且响应/me 带 `must_change_password=true` → 改密成功 → flag 清零、临时密码失效、新密码可用；
   2. 平台账号：新增（临时密码 + flag）→ 停用后登录被拒「账号或密码错误」语义（status=0 不匹配）→ 启用 → 重置 → 强改链路；
   3. 保护规则：停自己 → fail；只剩一个启用账号时停它 → fail「至少保留一个启用中的平台账号」；
-  4. 平台改密：旧密码错 → fail；成功 → flag 清零。
+  4. 平台改密：旧密码错 → fail；成功 → flag 清零；
+  5. 收款信息：PUT 非白名单键 → fail；PUT billing_notice → GET 回读一致 + `/auth/me` 的 `billing.notice` 同步变化（saas_setting 优先于 config 兜底）；清空值（≤0 字）→ fail。
 - **守卫**：全量回归 + guard；schema parity（sys_user 新列）转绿即证明 schema.sql 同步正确。
 - **手工验收**：浏览器过两处强改对话框（失败可重试、成功才放行、刷新不掉）与临时密码一次性展示/复制。
 
