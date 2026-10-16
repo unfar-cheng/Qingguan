@@ -72,8 +72,9 @@ class ProvisionRepo
      *  3) 文件尾不留「纯注释 + 无分号」的段落——下面的空段跳过只是兜底，不是许可。
      * 只剥「-- 开头」的行注释，绝不剥行尾注释（如 biz_plan.plan_name 的
      * `COMMENT '方案名称，如 方案A--美森'`，naive 行尾剥离会剥坏字符串值）。
+     * 公开给 scripts/migrate_dedicated.php 复用——迁移文件与 schema.sql 遵守同一套切分约定。
      */
-    private static function splitStatements(string $sql): array
+    public static function splitStatements(string $sql): array
     {
         $lines = preg_split('/\r?\n/', $sql);
         $kept  = [];
