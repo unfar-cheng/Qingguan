@@ -224,7 +224,7 @@ QG.mount(function () {
       },
       expiryText: function (row) {
         if (!row.expires_at) { return '—'; }
-        var d = Math.ceil((new Date(row.expires_at).getTime() - Date.now()) / 86400000);
+        var d = Math.ceil((new Date(row.expires_at.replace(' ', 'T')).getTime() - Date.now()) / 86400000);
         if (d > 30) { return row.expires_at.slice(0, 10); }
         if (d > 0) { return row.expires_at.slice(0, 10) + '（剩 ' + d + ' 天）'; }
         var g = d + 30;

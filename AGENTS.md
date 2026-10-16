@@ -33,7 +33,7 @@
 
 ```bash
 # 跑测试（73 个用例；HTTP 用例需要站点在跑，否则自动跳过）
-php83 tests/run.php                     # 期望 69 passed, 0 failed
+php83 tests/run.php                     # 期望 73 passed, 0 failed
 php83 tests/guard_no_raw_business_sql.php   # 期望 guard ok
 
 # 只跑部分 / 指向临时站点

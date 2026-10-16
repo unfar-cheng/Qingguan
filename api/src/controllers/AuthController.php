@@ -82,13 +82,13 @@ class AuthController
         $u = Auth::requireLogin();
         $u['permissions'] = Auth::permissionCodes();
         $u['billing'] = ['state' => 'none', 'days_left' => 0, 'trial' => false, 'expires_at' => $u['expires_at'] ?? null,
-            'notice' => (string) App::config('app')['billing_notice']];
+            'notice' => (string) (App::config('app')['billing_notice'] ?? '')];
         if (($u['scope'] ?? 'tenant') === 'tenant' && !empty($u['expires_at'])) {
             $hasPaid = (bool) ControlDb::val(
                 'SELECT COUNT(*) FROM saas_bill WHERE tenant_id = ? AND status = ?',
                 [(int) $u['tenant_id'], 'paid']
             );
-            $u['billing'] = Billing::state($u['expires_at'], $hasPaid) + ['expires_at' => $u['expires_at'], 'notice' => (string) App::config('app')['billing_notice']];
+            $u['billing'] = Billing::state($u['expires_at'], $hasPaid) + ['expires_at' => $u['expires_at'], 'notice' => (string) (App::config('app')['billing_notice'] ?? '')];
         }
         Response::ok($u);
     }
