@@ -3,6 +3,7 @@ namespace QG\controllers;
 
 use QG\App;
 use QG\Auth;
+use QG\Billing;
 use QG\ControlDb;
 use QG\RateLimit;
 use QG\Req;
@@ -45,8 +46,7 @@ class AuthController
         if ($t['status'] === 'rejected') {
             Response::fail('申请未通过' . ($t['reject_reason'] !== '' ? '：' . $t['reject_reason'] : ''));
         }
-        if ($t['expires_at'] !== null
-            && \QG\Billing::state($t['expires_at'], true)['state'] === 'expired') {
+        if (Billing::isExpired($t['expires_at'])) {
             Response::fail('服务已到期，请联系平台续费');
         }
         if ($t['status'] !== 'active') {
@@ -87,7 +87,7 @@ class AuthController
                 'SELECT COUNT(*) FROM saas_bill WHERE tenant_id = ? AND status = ?',
                 [(int) $u['tenant_id'], 'paid']
             );
-            $u['billing'] = \QG\Billing::state($u['expires_at'], $hasPaid) + ['expires_at' => $u['expires_at']];
+            $u['billing'] = Billing::state($u['expires_at'], $hasPaid) + ['expires_at' => $u['expires_at']];
         }
         Response::ok($u);
     }

@@ -107,8 +107,7 @@ class Auth
             self::$user = [];
             return null;
         }
-        if ($t['expires_at'] !== null
-            && \QG\Billing::state($t['expires_at'], true)['state'] === 'expired') {
+        if (Billing::isExpired($t['expires_at'])) {
             self::$user = [];
             return null;
         }

@@ -26,6 +26,12 @@ t('Billing::state：边界（恰好到期日、宽限最后一天）', function 
     assert_eq('expired', Billing::state(date('Y-m-d H:i:s', T0 - 30 * 86400 - 1), true, T0)['state']);
 });
 
+t('Billing::isExpired：拦截判定与账单无关', function () {
+    assert_true(!Billing::isExpired(null));
+    assert_true(!Billing::isExpired(date('Y-m-d H:i:s', T0 - 10 * 86400)), '宽限内不拦');
+    assert_true(Billing::isExpired(date('Y-m-d H:i:s', T0 - 31 * 86400)), '超宽限拦截');
+});
+
 t('Billing::nextExpiry：三分支重算', function () {
     // 分支1：未到期续费 → 旧到期日 + 周期（到期日在 T0 之后才算「未到期」）
     assert_eq('2028-01-15 00:00:00', Billing::nextExpiry('year', '2027-01-15 00:00:00', T0));

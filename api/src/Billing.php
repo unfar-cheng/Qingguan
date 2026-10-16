@@ -29,6 +29,12 @@ class Billing
         return ['state' => $left <= self::GRACE_DAYS ? 'soon' : 'normal', 'days_left' => $left, 'trial' => false];
     }
 
+    /** 登录/会话拦截判定：仅看是否超宽限，与账单无关（trial 语义不参与）。 */
+    public static function isExpired(?string $expiresAt): bool
+    {
+        return self::state($expiresAt, true)['state'] === 'expired';
+    }
+
     /** 到期日三分支重算（确认收款时调用）：未到期/宽限内 → 旧到期日+周期；超宽限 → now+周期 */
     public static function nextExpiry(string $cycle, ?string $expiresAt, int $now): string
     {
