@@ -126,38 +126,44 @@ t('审核端到端：注册→approve→新租户管理员可登录→重复 app
     $jar = platform_jar();
     if (!$jar) { echo "      平台超管不可用，跳过\n"; return; }
     $code = 'e2e' . substr(md5(uniqid()), 0, 8);
-    // 注册
-    $r = qg_post_json('/api/tenant/register', [
-        'name' => '端到端测试企业', 'code' => $code, 'contact_name' => '测试',
-        'contact_phone' => '13800000000', 'admin_username' => 'boss',
-        'password' => 'E2ePass123', 'plan_id' => 1, 'bill_cycle' => 'year',
-    ]);
-    assert_contains($r, '"code":0', '注册应成功：' . $r);
-    $tid = (int) ControlDb::val('SELECT id FROM saas_tenant WHERE code = ?', [$code]);
-    assert_true($tid > 0, '控制面应有 pending 租户');
-    // approve
-    $r = qg_post_json('/api/platform/tenants/' . $tid . '/approve', [], ['-b', $jar]);
-    assert_contains($r, '"code":0', 'approve 应成功：' . $r);
-    // 重复 approve 幂等
-    $r = qg_post_json('/api/platform/tenants/' . $tid . '/approve', [], ['-b', $jar]);
-    assert_contains($r, '"code":0', '重复 approve 应幂等成功：' . $r);
-    // 状态机回归：开通后驳回必须被拒（approve/reject 互斥，任务 4 质量审查 I1 的配套用例）
-    $r = qg_post_json('/api/platform/tenants/' . $tid . '/reject', ['reason' => '不该成功'], ['-b', $jar]);
-    assert_contains($r, '仅待审核的租户可驳回', 'active 租户不可驳回：' . $r);
-    // 新租户管理员可登录
-    $jar2 = tempnam(sys_get_temp_dir(), 'qgck');
-    $r = qg_post_json('/api/auth/login', ['tenant' => $code, 'username' => 'boss', 'password' => 'E2ePass123'], ['-c', $jar2]);
-    assert_contains($r, '"code":0', '新租户管理员应能登录：' . $r);
-    @unlink($jar2);
-    // 清理
-    $pdo = qg_test_pdo();
-    foreach (['sys_user', 'sys_role_permission', 'sys_role', 'sys_permission', 'sys_config', 'sys_dict', 'sys_log'] as $tb) {
-        $pdo->exec("DELETE FROM {$tb} WHERE tenant_id = " . $tid);
+    $tid = 0;
+    try {
+        // 注册
+        $r = qg_post_json('/api/tenant/register', [
+            'name' => '端到端测试企业', 'code' => $code, 'contact_name' => '测试',
+            'contact_phone' => '13800000000', 'admin_username' => 'boss',
+            'password' => 'E2ePass123', 'plan_id' => 1, 'bill_cycle' => 'year',
+        ]);
+        assert_contains($r, '"code":0', '注册应成功：' . $r);
+        $tid = (int) ControlDb::val('SELECT id FROM saas_tenant WHERE code = ?', [$code]);
+        assert_true($tid > 0, '控制面应有 pending 租户');
+        // approve
+        $r = qg_post_json('/api/platform/tenants/' . $tid . '/approve', [], ['-b', $jar]);
+        assert_contains($r, '"code":0', 'approve 应成功：' . $r);
+        // 重复 approve 幂等
+        $r = qg_post_json('/api/platform/tenants/' . $tid . '/approve', [], ['-b', $jar]);
+        assert_contains($r, '"code":0', '重复 approve 应幂等成功：' . $r);
+        // 状态机回归：开通后驳回必须被拒（approve/reject 互斥，任务 4 质量审查 I1 的配套用例）
+        $r = qg_post_json('/api/platform/tenants/' . $tid . '/reject', ['reason' => '不该成功'], ['-b', $jar]);
+        assert_contains($r, '仅待审核的租户可驳回', 'active 租户不可驳回：' . $r);
+        // 新租户管理员可登录
+        $jar2 = tempnam(sys_get_temp_dir(), 'qgck');
+        $r = qg_post_json('/api/auth/login', ['tenant' => $code, 'username' => 'boss', 'password' => 'E2ePass123'], ['-c', $jar2]);
+        assert_contains($r, '"code":0', '新租户管理员应能登录：' . $r);
+        @unlink($jar2);
+    } finally {
+        // 清理必须放 finally：中途断言失败也绝不能留下 saas_tenant / 播种数据（历史上漏过两次）
+        if ($tid > 0) {
+            $pdo = qg_test_pdo();
+            foreach (['sys_user', 'sys_role_permission', 'sys_role', 'sys_permission', 'sys_config', 'sys_dict', 'sys_log'] as $tb) {
+                $pdo->exec("DELETE FROM {$tb} WHERE tenant_id = " . $tid);
+            }
+            ControlDb::exec('DELETE FROM saas_bill WHERE tenant_id = ?', [$tid]);
+            ControlDb::exec('DELETE FROM saas_audit WHERE target_type = ? AND target_id = ?', ['tenant', $tid]);
+            ControlDb::exec('DELETE FROM saas_tenant WHERE id = ?', [$tid]);
+        }
+        @unlink($jar);
     }
-    ControlDb::exec('DELETE FROM saas_bill WHERE tenant_id = ?', [$tid]);
-    ControlDb::exec('DELETE FROM saas_audit WHERE target_type = ? AND target_id = ?', ['tenant', $tid]);
-    ControlDb::exec('DELETE FROM saas_tenant WHERE id = ?', [$tid]);
-    @unlink($jar);
 });
 
 t('audits 审计日志：分页 + action/租户代码筛选 + 未知租户恒空集', function () {
