@@ -11,6 +11,7 @@ use QG\Response;
 use QG\Router;
 use QG\Tenant;
 use QG\repos\PermissionRepo;
+use QG\repos\SettingRepo;
 use QG\repos\UserRepo;
 
 class AuthController
@@ -81,8 +82,10 @@ class AuthController
     {
         $u = Auth::requireLogin();
         $u['permissions'] = Auth::permissionCodes();
+        $notice = SettingRepo::get('billing_notice')
+            ?: ((string) (App::config('app')['billing_notice'] ?? '') ?: '对公账户信息请联系平台获取');
         $u['billing'] = ['state' => 'none', 'days_left' => 0, 'trial' => false, 'expires_at' => $u['expires_at'] ?? null,
-            'grace_end' => null, 'notice' => (string) (App::config('app')['billing_notice'] ?? '')];
+            'grace_end' => null, 'notice' => $notice];
         if (($u['scope'] ?? 'tenant') === 'tenant' && !empty($u['expires_at'])) {
             $hasPaid = (bool) ControlDb::val(
                 'SELECT COUNT(*) FROM saas_bill WHERE tenant_id = ? AND status = ?',
@@ -90,7 +93,7 @@ class AuthController
             );
             $u['billing'] = Billing::state($u['expires_at'], $hasPaid) + ['expires_at' => $u['expires_at'],
                 'grace_end' => date('Y-m-d', strtotime($u['expires_at']) + Billing::GRACE_DAYS * 86400),
-                'notice' => (string) (App::config('app')['billing_notice'] ?? '')];
+                'notice' => $notice];
         }
         Response::ok($u);
     }

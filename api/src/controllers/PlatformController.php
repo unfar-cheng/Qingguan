@@ -11,6 +11,7 @@ use QG\Response;
 use QG\Router;
 use QG\TenantProvisioner;
 use QG\repos\BillRepo;
+use QG\repos\SettingRepo;
 
 /** 平台侧：超管登录 + 租户审核。全部路由在 /api/platform/* 下，令牌 scope=platform。 */
 class PlatformController
@@ -29,6 +30,8 @@ class PlatformController
         $r->post('/platform/tenants/{id}/reject', [self::class, 'reject']);
         $r->post('/platform/tenants/{id}/suspend', [self::class, 'suspend']);
         $r->post('/platform/tenants/{id}/enable', [self::class, 'enable']);
+        $r->get('/platform/settings', [self::class, 'settingsGet']);
+        $r->put('/platform/settings', [self::class, 'settingsPut']);
     }
 
     public static function login(): void
@@ -296,6 +299,35 @@ class PlatformController
         ControlDb::exec("UPDATE saas_tenant SET status = 'active' WHERE id = ?", [(int) $t['id']]);
         self::audit((int) $admin['id'], 'enable', (int) $t['id'], '');
         Response::ok(null, '已启用');
+    }
+
+    /** 平台设置键白名单：新增设置项先在这里登记 */
+    private const SETTING_KEYS = ['billing_notice'];
+
+    public static function settingsGet(): void
+    {
+        Auth::requirePlatform();
+        Response::ok(SettingRepo::all(self::SETTING_KEYS));
+    }
+
+    public static function settingsPut(): void
+    {
+        $admin = Auth::requirePlatform();
+        $updated = [];
+        foreach (self::SETTING_KEYS as $key) {
+            $v = Req::str($key);
+            if ($v === '') { continue; }
+            if (mb_strlen($v) > 2000) {
+                Response::fail($key . ' 不能超过 2000 字');
+            }
+            SettingRepo::put($key, $v, (int) $admin['id']);
+            $updated[] = $key;
+        }
+        if (!$updated) {
+            Response::fail('没有需要更新的设置项');
+        }
+        self::audit((int) $admin['id'], 'setting_update', null, '更新平台设置：' . implode(',', $updated));
+        Response::ok(SettingRepo::all(self::SETTING_KEYS), '设置已保存');
     }
 
     private static function findTenant(array $p): array
