@@ -59,7 +59,7 @@ require_once __DIR__ . '/bootstrap.php';
 
 use QG\Billing;
 
-const T0 = 1792152000; // 2026-10-16 12:00:00 UTC+8 对应的固定时钟
+const T0 = 1792152000; // 2026-10-16 12:00:00 UTC 对应的固定时钟
 
 t('Billing::state：none/normal/soon/grace/expired 五态', function () {
     assert_eq('none', Billing::state(null, false)['state']);
@@ -998,7 +998,7 @@ function ControlDbDelTenant(int $tid): void {
 4. `t('账单：过期租户登录被拦截')` —— SQL 造 active 租户 expires_at = now-31 天 + 管理员（数据面播种或复用）→ POST /api/auth/login → 断言「服务已到期」；/api/auth/me（若已有会话 cookie 场景）→ 401 语义由单测/集成保证，此处至少断言登录拦截。
 5. `t('账单：租户 token 只能读本租户账单')` —— 两个 active 租户各带 unpaid 账单 → A 的管理员 GET /api/bills → 断言只见 A 的账单号。
 
-- [ ] **步骤 9.2：全量回归 + 计数更新** —— `php83 tests/run.php 2>&1 | tail -1`（记录最终数字，预期 75+N）；`AGENTS.md` 三处基线计数（35/36/162 行的 69 → 实际值）。
+- [ ] **步骤 9.2：全量回归 + 计数更新** —— `php83 tests/run.php 2>&1 | tail -1`（记录最终数字，预期 72+N）；`AGENTS.md` 三处基线计数（35/36/162 行的 69 → 实际值）。
 
 - [ ] **步骤 9.3：手工验收（dev，浏览器 + curl 混合，记录结论到本计划末尾）**
 

@@ -3,11 +3,11 @@ require_once __DIR__ . '/bootstrap.php';
 
 use QG\Billing;
 
-const T0 = 1792152000; // 2026-10-16 12:00:00 UTC+8 对应的固定时钟
+const T0 = 1792152000; // 2026-10-16 12:00:00 UTC 对应的固定时钟
 
 t('Billing::state：none/normal/soon/grace/expired 五态', function () {
     assert_eq('none', Billing::state(null, false)['state']);
-    assert_eq('normal', Billing::state('2027-03-01 00:00:00', false)['state'], '剩余>30天');
+    assert_eq('normal', Billing::state('2027-03-01 00:00:00', false, T0)['state'], '剩余>30天');
     $s = Billing::state(date('Y-m-d H:i:s', T0 + 15 * 86400), false, T0);
     assert_eq('soon', $s['state']);
     assert_eq(15, $s['days_left'], '剩余天数按自然日');
