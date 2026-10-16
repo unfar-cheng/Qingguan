@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS `sys_user` (
   `dept` VARCHAR(50) DEFAULT NULL COMMENT '所属部门',
   `role_id` INT UNSIGNED DEFAULT NULL,
   `status` TINYINT(1) NOT NULL DEFAULT 1 COMMENT '1启用 0停用',
+  `must_change_password` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '首登强制改密',
   `last_login_at` DATETIME DEFAULT NULL,
   `last_login_ip` VARCHAR(45) DEFAULT NULL,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

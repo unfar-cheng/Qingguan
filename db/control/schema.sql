@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS `saas_platform_user` (
   `password_hash` VARCHAR(255) NOT NULL DEFAULT '',
   `email`         VARCHAR(100) NOT NULL DEFAULT '',
   `status`        TINYINT NOT NULL DEFAULT 1,
+  `must_change_password` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '首登强制改密',
   `last_login_at` DATETIME NULL,
   `last_login_ip` VARCHAR(50) NOT NULL DEFAULT '',
   `created_at`    DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
@@ -93,3 +94,11 @@ CREATE TABLE IF NOT EXISTS `saas_bill` (
   PRIMARY KEY (`id`),
   KEY `idx_tenant` (`tenant_id`,`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='账单';
+
+CREATE TABLE IF NOT EXISTS `saas_setting` (
+  `setting_key`   VARCHAR(50) NOT NULL,
+  `setting_value` TEXT NOT NULL,
+  `updated_by`    INT UNSIGNED NULL COMMENT '最后更新的平台账号',
+  `updated_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`setting_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='平台设置（键值）';
