@@ -127,7 +127,7 @@ ops/                   Apache vhost 与 php83-fpm 池配置
 
 ## 6. 数据库
 
-**控制面库**（`db/control/schema.sql`，装机时跑一次）：`saas_plan`、`saas_tenant`（`code` 唯一、`mode shared|dedicated`、`db_name`、`status pending|active|rejected|suspended`）、`saas_platform_user`、`saas_audit`。`db/control/seed_tenant1.sql` 把原有单机数据登记成租户 #1（`code='demo'`）。
+**控制面库**（`db/control/schema.sql`，装机时跑一次）：`saas_plan`、`saas_tenant`（`code` 唯一、`mode shared|dedicated`、`db_name`、`status pending|active|rejected|suspended`、`bill_cycle`/`expires_at` 服务期）、`saas_platform_user`、`saas_audit`、`saas_bill`。`db/control/seed_tenant1.sql` 把原有单机数据登记成租户 #1（`code='demo'`）。
 
 **数据面库**（共享库或每租户专用库，21 张表）：7 张 `sys_*` + `org_company`、`biz_plan`、`biz_order` 及子表、`biz_isf`、`biz_inspect`、`biz_pickup`、`fin_account`、`fin_recharge`、`fin_payable`。**所有业务表都带 `tenant_id`**，唯一键已改造成 `uk_tenant_*` 复合键，另有 `idx_tenant_list`/`idx_tenant_order`。
 
