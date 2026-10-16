@@ -41,7 +41,7 @@
 
 **文件：** 创建 `api/src/TempPassword.php`、`tests/test_temp_password.php`
 
-- [ ] **步骤 1.1：写失败的测试** —— 创建 `tests/test_temp_password.php`（全文照抄）：
+- [x] **步骤 1.1：写失败的测试** —— 创建 `tests/test_temp_password.php`（全文照抄）：
 
 ```php
 <?php
@@ -68,9 +68,9 @@ t('TempPassword：500 次生成无重复、长度可调、过短拒绝', functio
 });
 ```
 
-- [ ] **步骤 1.2：运行验证失败** —— `php83 tests/run.php 2>&1 | tail -4`，预期 2 组新用例 FAIL（类不存在）。
+- [x] **步骤 1.2：运行验证失败** —— `php83 tests/run.php 2>&1 | tail -4`，预期 2 组新用例 FAIL（类不存在）。
 
-- [ ] **步骤 1.3：实现** —— 创建 `api/src/TempPassword.php`（全文照抄）：
+- [x] **步骤 1.3：实现** —— 创建 `api/src/TempPassword.php`（全文照抄）：
 
 ```php
 <?php
@@ -99,9 +99,9 @@ class TempPassword
 }
 ```
 
-- [ ] **步骤 1.4：运行验证通过** —— `php83 tests/run.php 2>&1 | tail -1`，预期 **80 passed, 0 failed**（78+2）。
+- [x] **步骤 1.4：运行验证通过** —— `php83 tests/run.php 2>&1 | tail -1`，预期 **80 passed, 0 failed**（78+2）。
 
-- [ ] **步骤 1.5：Commit**
+- [x] **步骤 1.5：Commit**
 
 ```bash
 git add api/src/TempPassword.php tests/test_temp_password.php
@@ -114,7 +114,7 @@ git commit -m "feat: TempPassword 临时密码生成器（无易混淆字符）"
 
 **文件：** 创建 `db/migration_20261016_platform_account.sql`、`db/migration_20261016_user_force_change.sql`；修改 `db/control/schema.sql`、`db/schema.sql`
 
-- [ ] **步骤 2.1：控制面迁移** —— 创建 `db/migration_20261016_platform_account.sql`（全文照抄）：
+- [x] **步骤 2.1：控制面迁移** —— 创建 `db/migration_20261016_platform_account.sql`（全文照抄）：
 
 ```sql
 -- 控制面：平台账号强改标记 + 平台设置表（幂等；执行库 = qingguan_control[_dev]）
@@ -140,7 +140,7 @@ SET @s := (SELECT IF(
 PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
 ```
 
-- [ ] **步骤 2.2：数据面迁移** —— 创建 `db/migration_20261016_user_force_change.sql`（全文照抄）：
+- [x] **步骤 2.2：数据面迁移** —— 创建 `db/migration_20261016_user_force_change.sql`（全文照抄）：
 
 ```sql
 -- 数据面：sys_user 首登强制改密标记（幂等；执行面 = 共享库手工 + 各专用库经 migrate_dedicated.php 扇出）
@@ -153,7 +153,7 @@ SET @s := (SELECT IF(
 PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
 ```
 
-- [ ] **步骤 2.3：dev 执行（控制面 + 共享库 + 专用库扇出），各跑两遍验证幂等**
+- [x] **步骤 2.3：dev 执行（控制面 + 共享库 + 专用库扇出），各跑两遍验证幂等**
 
 ```bash
 sudo -n mysql qingguan_control_dev < db/migration_20261016_platform_account.sql && sudo -n mysql qingguan_control_dev < db/migration_20261016_platform_account.sql && echo CONTROL_OK
@@ -165,7 +165,7 @@ sudo -n mysql -e "SHOW COLUMNS FROM qingguan_control_dev.saas_platform_user LIKE
 
 预期：全部成功；三处列就位；saas_setting 结构正确。
 
-- [ ] **步骤 2.4：schema 同步** —— `db/control/schema.sql` 的 `saas_platform_user` DDL `status` 行后加：
+- [x] **步骤 2.4：schema 同步** —— `db/control/schema.sql` 的 `saas_platform_user` DDL `status` 行后加：
 
 ```sql
   `must_change_password` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '首登强制改密',
@@ -190,7 +190,7 @@ CREATE TABLE IF NOT EXISTS `saas_setting` (
   `must_change_password` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '首登强制改密',
 ```
 
-- [ ] **步骤 2.5：验证 + Commit**
+- [x] **步骤 2.5：验证 + Commit**
 
 ```bash
 php83 tests/run.php 2>&1 | tail -1    # 预期 80 passed（schema parity 转绿 = schema.sql 同步正确）
@@ -205,7 +205,7 @@ git commit -m "feat: 账号强改标记迁移（控制面+数据面+saas_setting
 
 **文件：** 创建 `api/src/repos/SettingRepo.php`；修改 `api/src/controllers/PlatformController.php`、`api/src/controllers/AuthController.php`
 
-- [ ] **步骤 3.1：SettingRepo** —— 创建 `api/src/repos/SettingRepo.php`（全文照抄）：
+- [x] **步骤 3.1：SettingRepo** —— 创建 `api/src/repos/SettingRepo.php`（全文照抄）：
 
 ```php
 <?php
@@ -248,7 +248,7 @@ class SettingRepo
 }
 ```
 
-- [ ] **步骤 3.2：平台设置接口** —— `PlatformController` 路由（accounts 路由在任务 5，本任务先加 settings 两条）：
+- [x] **步骤 3.2：平台设置接口** —— `PlatformController` 路由（accounts 路由在任务 5，本任务先加 settings 两条）：
 
 ```php
         $r->get('/platform/settings', [self::class, 'settingsGet']);
@@ -288,7 +288,7 @@ class SettingRepo
     }
 ```
 
-- [ ] **步骤 3.3：me() notice 数据源** —— `AuthController::me()` 的两处 notice 表达式改为 SettingRepo 优先（文件头加 `use QG\repos\SettingRepo;`）：
+- [x] **步骤 3.3：me() notice 数据源** —— `AuthController::me()` 的两处 notice 表达式改为 SettingRepo 优先（文件头加 `use QG\repos\SettingRepo;`）：
 
 ```php
         $notice = SettingRepo::get('billing_notice')
@@ -297,7 +297,7 @@ class SettingRepo
 
 兜底数组与 tenant 分支的 `'notice' => ...` 都用 `$notice`（只算一次）。
 
-- [ ] **步骤 3.4：验证 + Commit**
+- [x] **步骤 3.4：验证 + Commit**
 
 ```bash
 php83 tests/run.php 2>&1 | tail -1 && php83 tests/guard_no_raw_business_sql.php | tail -1   # 80 passed + guard ok
@@ -312,7 +312,7 @@ git commit -m "feat: 平台设置接口（saas_setting）与 billing_notice 数�
 
 **文件：** 修改 `api/src/repos/UserRepo.php`、`api/src/controllers/AuthController.php`
 
-- [ ] **步骤 4.1：UserRepo** —— `setPassword` 后加：
+- [x] **步骤 4.1：UserRepo** —— `setPassword` 后加：
 
 ```php
     public static function clearMustChangePassword(int $id): int
@@ -321,13 +321,13 @@ git commit -m "feat: 平台设置接口（saas_setting）与 billing_notice 数�
     }
 ```
 
-- [ ] **步骤 4.2：password() 清零** —— `AuthController::password` 的 `UserRepo::setPassword(...)` 行后加：
+- [x] **步骤 4.2：password() 清零** —— `AuthController::password` 的 `UserRepo::setPassword(...)` 行后加：
 
 ```php
         UserRepo::clearMustChangePassword((int) $u['id']);
 ```
 
-- [ ] **步骤 4.3：验证自动带出** —— 说明性验证（无代码改动）：login 响应与 `/auth/me` 的 `$u` 来自 `UserRepo::findWithRole`（`SELECT u.*`）与 me() 的整包返回，`must_change_password` 列迁移后自动随行。用 dev 实呼确认：任意租户管理员登录 → `/auth/me` 含 `"must_change_password":false`。
+- [x] **步骤 4.3：验证自动带出** —— 说明性验证（无代码改动）：login 响应与 `/auth/me` 的 `$u` 来自 `UserRepo::findWithRole`（`SELECT u.*`）与 me() 的整包返回，`must_change_password` 列迁移后自动随行。用 dev 实呼确认：任意租户管理员登录 → `/auth/me` 含 `"must_change_password":false`。
 
 ```bash
 php83 tests/run.php 2>&1 | tail -1 && php83 tests/guard_no_raw_business_sql.php | tail -1   # 80 passed + guard ok
@@ -843,4 +843,11 @@ ssh breeder.sflswall.com.cn 'cd /opt/qingguan && php scripts/migrate_dedicated.p
 
 ## 执行记录
 
-（执行时逐任务追加：日期 + commit + 结果/问题）
+### 2026-10-16 · 任务 1–4
+
+- **任务 1**（`79ce45f`，审查通过）：`TempPassword` + 单测。实现者发现计划自相矛盾（计划 CHARSET 含 `i`，而测试正则排除 `0Oo/1lIi` 形近字符族），按「不改测试」纪律把 CHARSET 收敛为 63 字符；控制者裁决接受，并修正计划/规格口径（`0c264a1`）。独立审查：Monte Carlo 2000 次 0 不匹配、63 字符全覆盖、80 passed。
+- **任务 2**（`b2d2048`，审查通过）：两份迁移 + 两个 schema.sql 同步；dev 实跑控制面×2、共享库×2、专用库×2 全绿，`saas_setting`/两处 `must_change_password` 结构核对一致。**发现的既有缺陷**：扇出脚本幂等重跑必 FAIL（`scripts/migrate_dedicated.php` 用 `PDO::exec()` 执行会产生结果集的语句，下一句报 2014）→ 已修（`431b9e9`：`query()` + 取尽 `nextRowset()`），修复后专用库连续两遍 OK。
+- **任务 3**（`893c229`，审查通过）+ 改进（`018e04a`）：`SettingRepo` + `GET/PUT /platform/settings` + `me()` notice 数据源。审查建议两条已落地：① 改为**先全量校验后写入**，避免多键白名单未来出现半更新；② `PUT` 显式空串现在表示**清空**（删 `saas_setting` 行、回落 config/默认文案），平台界面因此可把收款信息恢复为部署默认值。实呼验证：往返读写、白名单外键拒绝、2001 字拒绝、清空后 `me()` 回落兜底、审计 `平台设置：清空 billing_notice`。
+- **任务 4**（`bbdbdcb`）：`UserRepo::clearMustChangePassword`（带 `tenant_id` 隔离，比计划原文更严）+ `AuthController::password` 清零。实呼确认 `must_change_password` 已随租户登录响应、`/auth/me`、`/platform/me` 自动带出（值为 int `0/1`，前端按真值判断即可）。
+- 门禁：各提交前后 `php83 tests/run.php` = **80 passed, 0 failed**、`guard ok`。
+- 备注：dev 站点共享限流桶（platform-login 10 次/10 分钟）在背靠背连跑测试时会打出 HTTP 级用例的偶发失败，非回归。
