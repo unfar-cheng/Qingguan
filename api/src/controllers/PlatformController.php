@@ -74,7 +74,7 @@ class PlatformController
         $total = (int) ControlDb::val("SELECT COUNT(*) FROM saas_tenant t WHERE {$where}", $bind);
         $rows  = ControlDb::all(
             "SELECT t.id, t.code, t.name, t.mode, t.status, t.contact_name, t.contact_phone, t.contact_email,
-                    t.admin_username, t.reject_reason, t.applied_at, t.reviewed_at, t.logo_url,
+                    t.admin_username, t.reject_reason, t.applied_at, t.reviewed_at, t.logo_url, t.db_name,
                     p.name AS plan_name
                FROM saas_tenant t LEFT JOIN saas_plan p ON p.id = t.plan_id
               WHERE {$where} ORDER BY (t.status = 'pending') DESC, t.id DESC LIMIT {$size} OFFSET {$offset}",

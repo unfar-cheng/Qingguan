@@ -29,8 +29,8 @@
       <el-table-column prop="code" label="租户代码" width="120"></el-table-column>
       <el-table-column prop="name" label="企业名称" min-width="170"></el-table-column>
       <el-table-column prop="plan_name" label="套餐" width="140"></el-table-column>
-      <el-table-column label="隔离档" width="80">
-        <template #default="s">{{ s.row.mode === 'dedicated' ? '独享' : '共享' }}</template>
+      <el-table-column label="隔离档" width="150">
+        <template #default="s">{{ s.row.mode === 'dedicated' ? ('独享 ' + (s.row.db_name || '')) : '共享' }}</template>
       </el-table-column>
       <el-table-column label="联系人" min-width="150">
         <template #default="s">{{ s.row.contact_name }} {{ s.row.contact_phone || s.row.contact_email }}</template>
@@ -94,7 +94,10 @@ QG.mount(function () {
       },
       approve: function (row) {
         var self = this;
-        QG.confirm('确定通过「' + row.name + '」？将立即播种默认数据并创建管理员 ' + row.admin_username + '。').then(function () {
+        var tip = row.mode === 'dedicated'
+          ? '确定通过「' + row.name + '」？将创建独立数据库 ' + (row.db_name || 'qingguan_t_' + row.code) + '、专用账号并播种默认数据，创建管理员 ' + row.admin_username + '。'
+          : '确定通过「' + row.name + '」？将立即播种默认数据并创建管理员 ' + row.admin_username + '。';
+        QG.confirm(tip).then(function () {
           QG.post('/platform/tenants/' + row.id + '/approve', {})
             .then(function () { QG.toast('已开通'); self.load(); })
             .catch(function (e) { QG.err(e); });

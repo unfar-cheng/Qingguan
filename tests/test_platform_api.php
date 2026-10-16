@@ -107,7 +107,9 @@ t('tenants 列表不泄露敏感字段', function () {
     $r = qg_curl('/api/platform/tenants', ['-b', $jar]);
     assert_contains($r, '"code":0', '平台列表应可访问：' . $r);
     assert_true(strpos($r, 'password_hash') === false, '列表不得出现 password_hash：' . $r);
-    assert_true(strpos($r, '"db_name":') === false, '列表不得出现 db_name：' . $r);
+    // db_name 自专用档方案（spec 2026-10-15 前端节：dedicated 行展示库名）起是平台列表的合法字段，
+    // 旧断言「不得出现 db_name」过时，改为正向回归：SELECT 必须带出 db_name。
+    assert_true(strpos($r, '"db_name":') !== false, '列表应带出 db_name（专用档展示依赖）：' . $r);
     @unlink($jar);
 });
 
