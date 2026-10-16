@@ -1,4 +1,5 @@
 -- 控制面：账单与有效期（幂等；MySQL 8.0 与 MariaDB 10.5 通用；执行库 = qingguan_control[_dev]）
+SET NAMES utf8mb4;
 SET @s := (SELECT IF(
   (SELECT COUNT(*) FROM information_schema.COLUMNS
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'saas_tenant' AND COLUMN_NAME = 'expires_at') = 0,
